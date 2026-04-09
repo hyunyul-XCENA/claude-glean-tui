@@ -202,13 +202,17 @@ def app(stdscr: curses.window) -> None:
         # Render content (rows 1 .. h-2).
         try:
             active_screen.render()
-        except Exception:
+        except Exception as exc:
             start_y, _, width = active_screen.content_area()
             try:
+                msg = f"Error: {exc}"
                 stdscr.addnstr(start_y + 1, 3,
-                               "Error rendering screen — press r to retry.",
+                               msg[:width - 4],
                                max(0, width - 4),
                                curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                stdscr.addnstr(start_y + 2, 3,
+                               "Press r to retry.",
+                               max(0, width - 4), curses.A_DIM)
             except curses.error:
                 pass
 

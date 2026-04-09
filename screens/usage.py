@@ -26,8 +26,8 @@ class UsageScreen(BaseScreen):
     def refresh_data(self) -> None:
         try:
             self.usage = get_usage_stats()
-        except Exception:
-            self.usage = {}
+        except Exception as e:
+            self.usage = {"source": "error", "api_error": str(e)}
 
     def render(self) -> None:
         if self.check_auto_refresh(REFRESH_INTERVAL_SEC):

@@ -55,8 +55,8 @@ class HomeScreen(BaseScreen):
 
         try:
             self.usage = get_usage_stats()
-        except Exception:
-            self.usage = {}
+        except Exception as e:
+            self.usage = {"source": "error", "api_error": str(e)}
 
         try:
             self.health = get_health()
@@ -77,11 +77,23 @@ class HomeScreen(BaseScreen):
         start_y, height, width = self.content_area()
         y = start_y
 
-        y = self._render_sessions(y, width)
+        try:
+            y = self._render_sessions(y, width)
+        except Exception as e:
+            self.safe_addstr(y, 3, f"[sessions err: {e}]", curses.color_pair(COLOR_YELLOW))
+            y += 1
         y += 1
-        y = self._render_usage(y, width)
+        try:
+            y = self._render_usage(y, width)
+        except Exception as e:
+            self.safe_addstr(y, 3, f"[usage err: {e}]", curses.color_pair(COLOR_YELLOW))
+            y += 1
         y += 1
-        y = self._render_harness(y, width)
+        try:
+            y = self._render_harness(y, width)
+        except Exception as e:
+            self.safe_addstr(y, 3, f"[harness err: {e}]", curses.color_pair(COLOR_YELLOW))
+            y += 1
         y += 1
         self._render_quick_stats(y, width)
 
@@ -167,6 +179,11 @@ class HomeScreen(BaseScreen):
         source = self.usage.get("source", "estimated")
         if source == "api":
             return self._render_usage_api(y, width)
+        if source == "error":
+            y = self.draw_section(y, "API Usage", width - 2)
+            err = self.usage.get("api_error", "unknown error")
+            self.safe_addstr(y, 3, f"Error: {err}", curses.color_pair(COLOR_YELLOW))
+            return y + 1
         return self._render_usage_estimated(y, width)
 
     def _render_usage_api(self, y: int, width: int) -> int:

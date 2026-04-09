@@ -36,13 +36,21 @@ _last_api_call: float = 0.0
 _API_POLL_SEC: float = 60.0  # API call interval — don't hammer the server
 
 
-def get_usage_stats() -> Dict[str, Any]:
-    """Get usage stats — API when authenticated, JSONL when not.
+_debug_log = Path.home() / ".claude-glean-tui" / "debug.log"
 
-    API is called at most once per 60 seconds.  Between calls, cached
-    data is returned.
-    """
-    global _last_api_result, _api_fail_count, _last_api_call
+
+def _log(msg: str) -> None:
+    try:
+        _debug_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(_debug_log, "a") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
+    except OSError:
+        pass
+
+
+def get_usage_stats() -> Dict[str, Any]:
+    """Get usage stats — API when authenticated, JSONL when not."""
+    global _last_api_result, _api_fail_count, _last_api_call, _API_POLL_SEC
 
     try:
         from .oauth import is_authenticated
@@ -50,27 +58,40 @@ def get_usage_stats() -> Dict[str, Any]:
     except ImportError:
         authenticated = False
 
+    _log(f"authenticated={authenticated}")
+
     if authenticated:
         now = time.time()
-        # Only call API every 60 seconds
         if now - _last_api_call >= _API_POLL_SEC:
             _last_api_call = now
+            _log("calling API...")
             api_data = _fetch_api_usage()
+            _log(f"API result: {type(api_data).__name__}, keys={list(api_data.keys()) if api_data else 'None'}")
             if api_data is not None:
-                _last_api_result = api_data
-                _api_fail_count = 0
-                return api_data
-            # API failed
-            _api_fail_count += 1
+                # Handle 429 rate limit — back off
+                if api_data.get("_rate_limited"):
+                    retry = api_data.get("retry_after", 120)
+                    _API_POLL_SEC = max(_API_POLL_SEC, float(retry))
+                    _log(f"rate limited, backing off to {_API_POLL_SEC}s")
+                    _api_fail_count += 1
+                else:
+                    _last_api_result = api_data
+                    _api_fail_count = 0
+                    _API_POLL_SEC = 60.0  # reset to normal on success
+                    return api_data
+            else:
+                _api_fail_count += 1
+                _log(f"API fail #{_api_fail_count}")
+        else:
+            _log(f"cooldown: {now - _last_api_call:.0f}s / {_API_POLL_SEC}s")
 
-        # Between calls or after failure — return cached
         if _last_api_result is not None:
             cached = dict(_last_api_result)
             if _api_fail_count > 0:
                 cached["api_error"] = f"API unreachable (retry {_api_fail_count}), showing cached data"
             return cached
 
-    # Not authenticated — JSONL fallback
+    _log("fallback to JSONL estimated")
     return _aggregate_jsonl_usage()
 
 
@@ -87,6 +108,9 @@ def _fetch_api_usage() -> Optional[Dict[str, Any]]:
     raw = fetch_usage()
     if raw is None:
         return None
+    # Pass through rate-limit marker as-is
+    if raw.get("_rate_limited"):
+        return raw
 
     def _parse_bucket(data: Any) -> Dict[str, Any]:
         if not isinstance(data, dict):

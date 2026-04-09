@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import secrets
 import time
@@ -33,6 +34,16 @@ _TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 _USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 _USERINFO_URL = "https://api.anthropic.com/api/oauth/userinfo"
 _USER_AGENT = "claude-glean-tui/1.0"
+
+_LOG_FILE = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "claude-glean-tui" / "debug.log"
+
+
+def _debug(msg: str) -> None:
+    try:
+        with open(_LOG_FILE, "a") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} [oauth] {msg}\n")
+    except OSError:
+        pass
 
 # ── Credential storage ──────────────────────────────────────────────────────
 # Priority:
@@ -286,13 +297,18 @@ def _needs_refresh() -> bool:
 
 def _authorized_request(url: str) -> Optional[Dict[str, Any]]:
     """Make an authorized GET request. Handles token refresh automatically."""
-    if _needs_refresh():
+    needs = _needs_refresh()
+    _debug(f"needs_refresh={needs}")
+    if needs:
         if not _refresh_token():
-            return None  # don't delete user's env var token
+            _debug("refresh failed")
+            return None
 
     creds = _load_credentials()
     if not creds:
+        _debug("no credentials")
         return None
+    _debug(f"token_len={len(creds['access_token'])}")
 
     req = Request(
         url,
@@ -307,8 +323,17 @@ def _authorized_request(url: str) -> Optional[Dict[str, Any]]:
         with urlopen(req, timeout=15) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", errors="replace")[:200]
+        except Exception:
+            pass
+        _debug(f"HTTP {e.code}: {body}")
+        if e.code == 429:
+            # Rate limited — return a marker so caller can back off
+            retry_after = e.headers.get("Retry-After", "60") if hasattr(e, 'headers') else "60"
+            return {"_rate_limited": True, "retry_after": int(retry_after) if retry_after.isdigit() else 60}
         if e.code == 401:
-            # Try refresh once
             if _refresh_token():
                 creds = _load_credentials()
                 if creds:
@@ -317,30 +342,61 @@ def _authorized_request(url: str) -> Optional[Dict[str, Any]]:
                     try:
                         with urlopen(req, timeout=15) as resp:
                             return json.loads(resp.read().decode("utf-8"))
-                    except (HTTPError, URLError, OSError):
-                        pass
-            # Don't delete user's env var — just return None to fallback
+                    except (HTTPError, URLError, OSError) as e2:
+                        _debug(f"retry failed: {e2}")
         return None
-    except (URLError, OSError):
+    except (URLError, OSError) as e:
+        _debug(f"network error: {e}")
         return None
+
+
+_USAGE_CACHE = _TOKEN_DIR / "usage_cache.json"
 
 
 def fetch_usage() -> Optional[Dict[str, Any]]:
-    """Fetch usage data from Anthropic API.
+    """Fetch usage data from Anthropic API, with file-based cache.
 
-    Returns parsed response::
-
-        {
-            "five_hour": {"utilization": 45.2, "resets_at": "..."},
-            "seven_day": {"utilization": 23.1, "resets_at": "..."},
-            "seven_day_opus": {...},
-            "seven_day_sonnet": {...},
-            "extra_usage": {"is_enabled": true, "used_credits": 450, "monthly_limit": 5000},
-        }
-
-    Returns None if not authenticated or request fails.
+    On success: saves to ~/.config/claude-glean-tui/usage_cache.json.
+    On failure: reads from cache file (may be stale but better than nothing).
     """
-    return _authorized_request(_USAGE_URL)
+    result = _authorized_request(_USAGE_URL)
+    if result and not result.get("_rate_limited"):
+        # Cache successful response
+        try:
+            result["_cached_at"] = time.time()
+            _USAGE_CACHE.write_text(json.dumps(result), encoding="utf-8")
+        except OSError:
+            pass
+        return result
+
+    if result and result.get("_rate_limited"):
+        # Rate limited — try cache
+        cached = _read_usage_cache()
+        if cached:
+            _debug("429 — using cached usage data")
+            return cached
+        return result  # no cache, pass rate limit marker up
+
+    # Network error — try cache
+    cached = _read_usage_cache()
+    if cached:
+        _debug("API failed — using cached usage data")
+        return cached
+    return None
+
+
+def _read_usage_cache() -> Optional[Dict[str, Any]]:
+    """Read cached usage response. Returns None if missing or too old (>10min)."""
+    try:
+        if not _USAGE_CACHE.is_file():
+            return None
+        data = json.loads(_USAGE_CACHE.read_text(encoding="utf-8"))
+        cached_at = data.get("_cached_at", 0)
+        if time.time() - cached_at > 600:  # 10 min max staleness
+            return None
+        return data
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def fetch_userinfo() -> Optional[Dict[str, Any]]:
