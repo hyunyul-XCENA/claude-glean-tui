@@ -8,6 +8,7 @@ from ``common.py``.
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,51 +49,103 @@ def _log(msg: str) -> None:
         pass
 
 
-def get_usage_stats() -> Dict[str, Any]:
-    """Get usage stats — API when authenticated, JSONL when not."""
-    global _last_api_result, _api_fail_count, _last_api_call, _API_POLL_SEC
+_STATUSLINE_FILE = Path(os.environ.get(
+    "XDG_CONFIG_HOME", str(Path.home() / ".config"),
+)) / "claude-glean-tui" / "statusline.json"
 
+
+def get_usage_stats() -> Dict[str, Any]:
+    """Get usage stats. Priority: statusline file > OAuth API > JSONL estimated.
+
+    The statusline file is written by Claude Code's statusLine command
+    every few seconds — no API calls needed. This is the most reliable source.
+    """
+    # 1. Statusline file (written by Claude Code, always fresh)
+    sl = _read_statusline()
+    if sl is not None:
+        return sl
+
+    # 2. OAuth API (if authenticated)
+    global _last_api_result, _api_fail_count, _last_api_call, _API_POLL_SEC
     try:
         from .oauth import is_authenticated
         authenticated = is_authenticated()
     except ImportError:
         authenticated = False
 
-    _log(f"authenticated={authenticated}")
-
     if authenticated:
         now = time.time()
         if now - _last_api_call >= _API_POLL_SEC:
             _last_api_call = now
-            _log("calling API...")
             api_data = _fetch_api_usage()
-            _log(f"API result: {type(api_data).__name__}, keys={list(api_data.keys()) if api_data else 'None'}")
-            if api_data is not None:
-                # Handle 429 rate limit — back off
-                if api_data.get("_rate_limited"):
-                    retry = api_data.get("retry_after", 120)
-                    _API_POLL_SEC = max(_API_POLL_SEC, float(retry))
-                    _log(f"rate limited, backing off to {_API_POLL_SEC}s")
-                    _api_fail_count += 1
-                else:
-                    _last_api_result = api_data
-                    _api_fail_count = 0
-                    _API_POLL_SEC = 60.0  # reset to normal on success
-                    return api_data
-            else:
-                _api_fail_count += 1
-                _log(f"API fail #{_api_fail_count}")
-        else:
-            _log(f"cooldown: {now - _last_api_call:.0f}s / {_API_POLL_SEC}s")
-
+            if api_data is not None and not api_data.get("_rate_limited"):
+                _last_api_result = api_data
+                _api_fail_count = 0
+                return api_data
+            _api_fail_count += 1
         if _last_api_result is not None:
-            cached = dict(_last_api_result)
-            if _api_fail_count > 0:
-                cached["api_error"] = f"API unreachable (retry {_api_fail_count}), showing cached data"
-            return cached
+            return _last_api_result
 
-    _log("fallback to JSONL estimated")
+    # 3. JSONL estimated (last resort)
     return _aggregate_jsonl_usage()
+
+
+def _read_statusline() -> Optional[Dict[str, Any]]:
+    """Read usage data from Claude Code's statusline dump file.
+
+    Returns parsed data in the same format as API, or None if stale/missing.
+    """
+    try:
+        if not _STATUSLINE_FILE.is_file():
+            return None
+        raw = _STATUSLINE_FILE.read_text(encoding="utf-8").strip()
+        if not raw:
+            return None
+        data = json.loads(raw)
+
+        # Check freshness — statusline updates every few seconds,
+        # but if Claude Code isn't running, file goes stale
+        ts = data.get("timestamp", 0)
+        if time.time() - ts > 120:  # 2 min max staleness
+            return None
+
+        rl = data.get("rate_limits", {})
+        five_hour = rl.get("five_hour", {})
+        seven_day = rl.get("seven_day", {})
+        ctx = data.get("context_window", {})
+        cost = data.get("cost", {})
+
+        return {
+            "source": "statusline",
+            "window_5h": {
+                "usage_pct": five_hour.get("used_percentage", 0.0),
+                "resets_at": _epoch_to_iso(five_hour.get("resets_at", 0)),
+            },
+            "window_weekly": {
+                "usage_pct": seven_day.get("used_percentage", 0.0),
+                "resets_at": _epoch_to_iso(seven_day.get("resets_at", 0)),
+            },
+            "context_window": {
+                "used_pct": ctx.get("used_percentage", 0),
+                "remaining_pct": ctx.get("remaining_percentage", 0),
+            },
+            "cost": {
+                "total_usd": cost.get("total_cost_usd", 0.0),
+            },
+            "model": data.get("model", {}).get("display_name", ""),
+            "timestamp": datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else "",
+        }
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+
+
+def _epoch_to_iso(epoch: int) -> str:
+    if not epoch:
+        return ""
+    try:
+        return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+    except (OSError, ValueError):
+        return ""
 
 
 def _fetch_api_usage() -> Optional[Dict[str, Any]]:

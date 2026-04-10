@@ -188,7 +188,7 @@ class HomeScreen(BaseScreen):
             pass
 
         source = self.usage.get("source", "estimated")
-        if source == "api":
+        if source in ("api", "statusline"):
             return self._render_usage_api(y, width)
         if source == "error":
             y = self.draw_section(y, "API Usage", width - 2)
@@ -198,9 +198,10 @@ class HomeScreen(BaseScreen):
         return self._render_usage_estimated(y, width)
 
     def _render_usage_api(self, y: int, width: int) -> int:
-        """Render usage from Anthropic API (exact data)."""
-        from data.oauth import is_authenticated
-        y = self.draw_section(y, "API Usage (live)", width - 2)
+        """Render usage from statusline or API (exact data)."""
+        source = self.usage.get("source", "api")
+        label = "Usage (live)" if source == "statusline" else "API Usage (live)"
+        y = self.draw_section(y, label, width - 2)
 
         w5h = self.usage.get("window_5h", {})
         wk = self.usage.get("window_weekly", {})

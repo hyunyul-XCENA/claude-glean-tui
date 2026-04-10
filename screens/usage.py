@@ -37,7 +37,7 @@ class UsageScreen(BaseScreen):
         y = start_y
 
         source = self.usage.get("source", "estimated")
-        if source == "api":
+        if source in ("api", "statusline"):
             self._render_api(y, width)
         else:
             self._render_estimated(y, width)
