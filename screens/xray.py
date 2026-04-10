@@ -206,6 +206,11 @@ class XrayScreen(BaseScreen):
             return self._handle_detail_key(key)
         return self._handle_list_key(key)
 
+    def status_keys(self) -> str:
+        if self.mode == "detail":
+            return "Esc:Back  r:Refresh"
+        return "j/k:Nav  Enter:X-ray  d:Delete"
+
     def _handle_list_key(self, key: int) -> bool:
         # Confirm delete flow
         if self._confirm_delete:

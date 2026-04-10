@@ -176,17 +176,6 @@ class HomeScreen(BaseScreen):
     # ── API quota ─────────────────────────────────────────────────────
 
     def _render_usage(self, y: int, width: int) -> int:
-        # Check for expired token
-        try:
-            from data.oauth import is_token_invalid
-            if is_token_invalid():
-                y = self.draw_section(y, "API Usage", width - 2)
-                self.safe_addstr(y, 3, "Token expired. Press 'a' to re-authenticate.",
-                                 curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                return y + 1
-        except ImportError:
-            pass
-
         source = self.usage.get("source", "estimated")
         if source in ("api", "statusline"):
             return self._render_usage_api(y, width)
@@ -218,9 +207,12 @@ class HomeScreen(BaseScreen):
 
         # Weekly bar
         pct_wk = wk.get("usage_pct", 0.0)
+        resets_wk = wk.get("resets_at", "")
         self.safe_addstr(y, 3, "Weekly:    ")
         self.draw_bar(y, 14, pct_wk, 20)
-        self.safe_addstr(y, 39, "used")
+        local_wk = self.format_reset_datetime(resets_wk)
+        reset_wk_str = f"  resets {local_wk}" if local_wk else ""
+        self.safe_addstr(y, 39, f"used{reset_wk_str}")
         y += 1
 
         # Extra usage
@@ -268,8 +260,7 @@ class HomeScreen(BaseScreen):
                          f"Est. cost: 5h ${cost_5h:.2f} | Week ${cost_wk:.2f}",
                          curses.A_DIM)
         y += 1
-        self.safe_addstr(y, 3, "Press 'a' to sign in for exact usage data", curses.A_DIM)
-        return y + 1
+        return y
 
     # ── Harness score ─────────────────────────────────────────────────
 

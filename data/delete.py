@@ -9,11 +9,17 @@ the caller must delete the entire plugin instead.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .common import CLAUDE_DIR, read_json
+from .common import CLAUDE_DIR, UUID_RE, read_json
+from .components import get_agents, get_hooks, get_plugins, get_skills
+from .connectors import get_connectors
+from .health import get_health
+from .sessions import get_session_detail, get_sessions
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -123,6 +129,10 @@ def delete_plugin(plugin_key: str) -> Dict[str, Any]:
 
     if errors:
         return {"error": "; ".join(errors)}
+
+    for fn in (get_plugins, get_skills, get_agents, get_hooks,
+                get_connectors, get_health):
+        _safe_cache_clear(fn)
     return {"ok": True}
 
 
@@ -148,6 +158,8 @@ def delete_skill(name: str) -> Dict[str, Any]:
 
     try:
         shutil.rmtree(target)
+        _safe_cache_clear(get_skills)
+        _safe_cache_clear(get_health)
         return {"ok": True}
     except Exception as e:
         return {"error": str(e)}
@@ -174,6 +186,8 @@ def delete_agent(name: str) -> Dict[str, Any]:
 
     try:
         target.unlink()
+        _safe_cache_clear(get_agents)
+        _safe_cache_clear(get_health)
         return {"ok": True}
     except Exception as e:
         return {"error": str(e)}
@@ -186,9 +200,10 @@ def delete_session(session_id: str) -> Dict[str, Any]:
     """
     if not session_id or ".." in session_id or "/" in session_id:
         return {"error": "invalid session_id"}
+    if not UUID_RE.match(session_id):
+        return {"error": "session_id must be a valid UUID"}
 
     # Determine active session IDs
-    import os
     import subprocess
     active_session_ids: set = set()
     sessions_dir = CLAUDE_DIR / "sessions"
@@ -259,6 +274,9 @@ def delete_session(session_id: str) -> Dict[str, Any]:
         return {"error": "; ".join(errors)}
     if not deleted:
         return {"error": "session not found"}
+
+    _safe_cache_clear(get_sessions)
+    _safe_cache_clear(get_session_detail)
     return {"ok": True}
 
 
@@ -292,12 +310,21 @@ def delete_hook(event: str, index: int) -> Dict[str, Any]:
             settings.pop("hooks", None)
 
         _write_settings(settings_path, settings)
+        _safe_cache_clear(get_hooks)
+        _safe_cache_clear(get_health)
         return {"ok": True}
     except Exception as e:
         return {"error": str(e)}
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
+
+def _safe_cache_clear(fn: Any) -> None:
+    """Call fn.cache_clear() if the function has a ttl_cache-provided method."""
+    clear = getattr(fn, "cache_clear", None)
+    if clear is not None:
+        clear()
+
 
 def _read_settings(path: Path) -> Any:
     """Read settings.json, returning the parsed dict or None."""
@@ -309,11 +336,23 @@ def _read_settings(path: Path) -> Any:
 
 
 def _write_settings(path: Path, data: Any) -> None:
-    """Write settings.json with pretty formatting."""
-    path.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    """Write settings JSON atomically (tmp + rename)."""
+    content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        os.write(fd, content.encode("utf-8"))
+        os.close(fd)
+        os.replace(tmp_path, str(path))
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def _is_inside(target: Path, container: Path) -> bool:

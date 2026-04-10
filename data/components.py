@@ -201,9 +201,6 @@ def _scan_agents_dir(
 
 
 # ── Hooks ────────────────────────────────────────────────────────────────────
-# Note: connectors moved to data/connectors.py
-
-# ── Hooks ────────────────────────────────────────────────────────────────────
 
 def get_hooks() -> Dict[str, Any]:
     """Scan ``settings.json`` hooks + plugin ``hooks.json`` files."""
@@ -244,7 +241,7 @@ def _parse_hooks_block(
     for event, handlers in hooks.items():
         if not isinstance(handlers, list):
             handlers = [handlers]
-        for h in handlers:
+        for event_idx, h in enumerate(handlers):
             if not isinstance(h, dict):
                 continue
             matcher = h.get("matcher", "")
@@ -268,6 +265,7 @@ def _parse_hooks_block(
                         k: v for k, v in entry.items()
                         if v or k in ("event", "type", "source")
                     }
+                    entry["_event_index"] = event_idx
                     hooks_list.append(entry)
             # Old-style: {"command": "...", "description": "..."}
             elif "command" in h:
@@ -278,6 +276,7 @@ def _parse_hooks_block(
                     "command": h["command"],
                     "description": h.get("description", ""),
                     "source": source,
+                    "_event_index": event_idx,
                 })
 
 

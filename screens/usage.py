@@ -1,8 +1,8 @@
-"""Usage detail screen — 5h/weekly breakdown with API or estimated data.
+"""Usage detail screen — 5h/weekly breakdown with statusline or estimated data.
 
-Screen 2: when authenticated via OAuth, shows exact utilization from
-Anthropic API (same as /usage).  Otherwise falls back to JSONL
-token aggregation with per-session breakdown.
+Screen 2: when a statusline file is available, shows live utilization
+from Claude Code.  Otherwise falls back to JSONL token aggregation
+with per-session breakdown.
 """
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ class UsageScreen(BaseScreen):
         wk = self.usage.get("window_weekly", {})
         pct_wk = wk.get("usage_pct", 0.0)
         resets_wk = wk.get("resets_at", "")
-        local_wk = self.format_reset_time(resets_wk)
+        local_wk = self.format_reset_datetime(resets_wk)
         reset_wk_str = f"  resets {local_wk}" if local_wk else ""
 
         self.safe_addstr(y, 3, "Weekly:     ")
@@ -130,7 +130,7 @@ class UsageScreen(BaseScreen):
         self.safe_addstr(y, 5, f"This week:  ${cost.get('window_weekly_usd', 0):.2f}")
         y += 2
 
-        self.safe_addstr(y, 3, "Press 'a' to sign in for exact usage data (same as /usage)", curses.A_DIM)
+        pass  # no trailing hint
 
     def _render_window(self, y: int, width: int, window: str) -> int:
         if window == "5h":

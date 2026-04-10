@@ -6,14 +6,14 @@ files for ``mcp__`` tool patterns to discover cloud/plugin MCP servers.
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from .common import CLAUDE_DIR, CLAUDE_JSON, read_json, ttl_cache
+from .common import CLAUDE_DIR, CLAUDE_JSON, UUID_RE, read_json, ttl_cache
 
 # Valid MCP tool name: mcp__<server>__<tool>
 _VALID_MCP_RE = re.compile(r"^mcp__[A-Za-z0-9][A-Za-z0-9_-]*__[A-Za-z][A-Za-z0-9_-]*$")
+_MCP_GREP_RE = re.compile(rb'"(mcp__[^"]*)"')
 
 
 @ttl_cache(60)
@@ -149,6 +149,8 @@ def _extract_mcp_tools_from_sessions() -> Dict[str, Dict[str, Any]]:
             session_id = sess_data.get("sessionId", "")
             if not session_id:
                 continue
+            if not UUID_RE.match(session_id):
+                continue
             try:
                 for jsonl_file in projects_dir.rglob(f"{session_id}.jsonl"):
                     jsonl_paths.add(jsonl_file)
@@ -169,34 +171,30 @@ def _extract_mcp_tools_from_sessions() -> Dict[str, Dict[str, Any]]:
     server_tools: Dict[str, Dict[str, Any]] = {}
     for jsonl_path in jsonl_paths:
         try:
-            result = subprocess.run(
-                ["grep", "-o", '"mcp__[^"]*"', str(jsonl_path)],
-                capture_output=True, text=True, timeout=10,
-            )
-            if not result.stdout:
-                continue
-            for raw in result.stdout.splitlines():
-                tool_name = raw.strip().strip('"')
-                if not _VALID_MCP_RE.match(tool_name):
-                    continue
-                inner = tool_name[5:]
-                sep_idx = inner.find("__")
-                if sep_idx == -1:
-                    continue
-                prefix = inner[:sep_idx]
-                tool = inner[sep_idx + 2:]
-                if not prefix or not tool:
-                    continue
-                _, server_name, mcp_type, source = _parse_mcp_prefix(prefix)
-                if server_name not in server_tools:
-                    server_tools[server_name] = {
-                        "tools": set(),
-                        "type": mcp_type,
-                        "source": source,
-                        "command": "cloud" if mcp_type == "cloud" else "node",
-                    }
-                server_tools[server_name]["tools"].add(tool)
-        except Exception:
+            with open(jsonl_path, "rb") as f:
+                for line in f:
+                    for match in _MCP_GREP_RE.finditer(line):
+                        tool_name = match.group(1).decode("utf-8", errors="replace")
+                        if not _VALID_MCP_RE.match(tool_name):
+                            continue
+                        inner = tool_name[5:]
+                        sep_idx = inner.find("__")
+                        if sep_idx == -1:
+                            continue
+                        prefix = inner[:sep_idx]
+                        tool = inner[sep_idx + 2:]
+                        if not prefix or not tool:
+                            continue
+                        _, server_name, mcp_type, source = _parse_mcp_prefix(prefix)
+                        if server_name not in server_tools:
+                            server_tools[server_name] = {
+                                "tools": set(),
+                                "type": mcp_type,
+                                "source": source,
+                                "command": "cloud" if mcp_type == "cloud" else "node",
+                            }
+                        server_tools[server_name]["tools"].add(tool)
+        except (OSError, UnicodeDecodeError):
             continue
 
     return server_tools

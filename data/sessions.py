@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -24,9 +26,9 @@ def get_sessions() -> Dict[str, Any]:
     """Active claude processes for the current user (via ``ps aux``)."""
     sessions: List[Dict[str, Any]] = []
     try:
-        user = os.environ.get("USER", os.getlogin())
-    except OSError:
-        user = "unknown"
+        user = pwd.getpwuid(os.getuid()).pw_name
+    except (KeyError, OSError):
+        user = os.environ.get("USER", "unknown")
 
     try:
         result = subprocess.run(
@@ -75,7 +77,18 @@ def get_sessions() -> Dict[str, Any]:
         try:
             cwd = os.readlink(f"/proc/{pid}/cwd")
         except (FileNotFoundError, PermissionError, OSError):
-            pass
+            if sys.platform == "darwin":
+                try:
+                    lsof = subprocess.run(
+                        ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    for lsof_line in lsof.stdout.splitlines():
+                        if lsof_line.startswith("n"):
+                            cwd = lsof_line[1:]
+                            break
+                except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                    pass
 
         sessions.append({
             "pid": pid,
@@ -100,47 +113,43 @@ def get_activity() -> Dict[str, Any]:
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     today_start_ms = int(today_start.timestamp() * 1000)
 
+    # Stream for today count (avoids loading entire file into memory)
     today_count = 0
-    recent: List[Dict[str, Any]] = []
-
     try:
-        text = read_text(history_path)
-        if not text:
-            return {"today_count": 0, "recent": []}
-        lines = text.splitlines()
-
-        # Full scan for today count
-        for line in lines:
-            try:
-                entry = json.loads(line)
-                ts = entry.get("timestamp", 0)
-                if ts >= today_start_ms:
-                    today_count += 1
-            except Exception:
-                continue
-
-        # Last 10 entries (scan tail)
-        for line in reversed(lines[-50:]):
-            if len(recent) >= 10:
-                break
-            try:
-                entry = json.loads(line)
-                ts = entry.get("timestamp", 0)
-                display = entry.get("display", "").strip()
-                if not display:
+        with open(history_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                    ts = entry.get("timestamp", 0)
+                    if ts >= today_start_ms:
+                        today_count += 1
+                except Exception:
                     continue
-                project = entry.get("project", "")
-                project_name = Path(project).name if project else ""
-                age_seconds = max(0, (now_ms - ts) // 1000) if ts else 0
-                recent.append({
-                    "text": display[:100] + ("..." if len(display) > 100 else ""),
-                    "project": project_name,
-                    "ageSeconds": int(age_seconds),
-                })
-            except Exception:
-                continue
-    except Exception:
+    except (FileNotFoundError, PermissionError, OSError):
         pass
+
+    # Recent entries from tail
+    recent: List[Dict[str, Any]] = []
+    tail = _read_last_n_lines(history_path, 50)
+    for line in reversed(tail):
+        if len(recent) >= 10:
+            break
+        try:
+            entry = json.loads(line)
+            ts = entry.get("timestamp", 0)
+            display = entry.get("display", "").strip()
+            if not display:
+                continue
+            project = entry.get("project", "")
+            project_name = Path(project).name if project else ""
+            age_seconds = max(0, (now_ms - ts) // 1000) if ts else 0
+            recent.append({
+                "text": display[:100] + ("..." if len(display) > 100 else ""),
+                "project": project_name,
+                "ageSeconds": int(age_seconds),
+            })
+        except Exception:
+            continue
 
     return {"today_count": today_count, "recent": recent}
 
@@ -172,8 +181,11 @@ def get_session_detail() -> Dict[str, Any]:
                 decoded_path = decode_project_path(proj_dir.name)
                 project_name = Path(decoded_path).name or proj_dir.name
 
+                # Single read — slice for slug/timestamp and token usage
+                last_500 = _read_last_n_lines(jsonl_file, 500)
+                last_5 = last_500[-5:]
+
                 # Slug / custom title from tail
-                last_5 = _read_last_n_lines(jsonl_file, 5)
                 slug = ""
                 last_timestamp: Any = ""
                 for line in reversed(last_5):
@@ -187,7 +199,6 @@ def get_session_detail() -> Dict[str, Any]:
                         continue
 
                 # Message count (sample last 500 lines)
-                last_500 = _read_last_n_lines(jsonl_file, 500)
                 message_count = 0
                 for line in last_500:
                     try:
@@ -198,7 +209,7 @@ def get_session_detail() -> Dict[str, Any]:
                         continue
 
                 # Token usage from last assistant message
-                last_20 = _read_last_n_lines(jsonl_file, 20)
+                last_20 = last_500[-20:]
                 token_data = _extract_token_usage(last_20)
                 context_tokens = token_data.get("context_tokens", 0)
                 context_max = 1_000_000
@@ -262,20 +273,19 @@ def get_session_xray(session_id: str) -> Dict[str, Any]:
     context_tokens = token_data.get("context_tokens", 0)
     context_pct = round(context_tokens / context_max * 100) if context_max > 0 else 0
 
-    # Compact counting (full file scan -- "summary" entries are rare)
+    # Compact counting (stream line-by-line to avoid loading full file into memory)
     compacts_total = 0
-    last_compact_timestamp = None
+    last_compact_ts = None
     try:
-        with open(jsonl_path, "rb") as f:
-            raw = f.read().decode("utf-8", errors="replace")
-        for raw_line in raw.splitlines():
-            try:
-                entry = json.loads(raw_line)
-            except Exception:
-                continue
-            if entry.get("type") == "summary":
-                compacts_total += 1
-                last_compact_timestamp = entry.get("timestamp")
+        with open(jsonl_path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                try:
+                    entry = json.loads(raw_line)
+                except Exception:
+                    continue
+                if entry.get("type") == "summary":
+                    compacts_total += 1
+                    last_compact_ts = entry.get("timestamp")
     except (FileNotFoundError, PermissionError, OSError):
         pass
 
@@ -393,20 +403,6 @@ def _read_last_n_lines(path: Path, n: int) -> List[str]:
         return []
 
 
-def _read_first_n_lines(path: Path, n: int) -> List[str]:
-    """Read the first *n* lines of a file."""
-    try:
-        lines: List[str] = []
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for i, line in enumerate(f):
-                if i >= n:
-                    break
-                lines.append(line.rstrip("\n"))
-        return lines
-    except (FileNotFoundError, PermissionError, OSError):
-        return []
-
-
 def _extract_token_usage(lines: List[str]) -> Dict[str, int]:
     """Extract ``cache_read_input_tokens`` from the last assistant entry.
 
@@ -452,7 +448,10 @@ def _get_active_session_ids() -> Set[str]:
             if not text:
                 continue
             sd = json.loads(text)
-            pid = sd.get("pid")
+            try:
+                pid = int(sd.get("pid", 0))
+            except (TypeError, ValueError):
+                continue
             sid = sd.get("sessionId")
             if pid in active_pids and sid:
                 active_ids.add(sid)

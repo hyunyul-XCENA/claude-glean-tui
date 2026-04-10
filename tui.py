@@ -18,13 +18,11 @@ from typing import List, Optional
 # Ensure project root is importable regardless of cwd.
 sys.path.insert(0, str(Path(__file__).parent))
 
+from screens import SCREEN_NAMES
 from screens.base import (
     COLOR_BLUE, COLOR_CYAN, COLOR_GREEN, COLOR_HEADER, COLOR_ORANGE,
     COLOR_RED, COLOR_SELECTED, COLOR_YELLOW, BaseScreen,
 )
-
-# ── Screen registry ─────────────────────────────────────────────────────────
-SCREEN_NAMES = ["Home", "Usage", "Components", "X-ray"]
 
 # (module_path, class_name) — imported lazily so missing modules don't crash.
 _SCREEN_SPEC = [
@@ -122,7 +120,7 @@ def draw_top_bar(stdscr: curses.window, active_idx: int) -> None:
 # ── Status bar ───────────────────────────────────────────────────────────────
 
 def draw_status_bar(stdscr: curses.window, screen_name: str,
-                    last_refresh: float) -> None:
+                    last_refresh: float, extra_keys: str = "") -> None:
     """Render the bottom status bar at row h-1."""
     h, w = stdscr.getmaxyx()
     if h < 2 or w < 10:
@@ -130,7 +128,9 @@ def draw_status_bar(stdscr: curses.window, screen_name: str,
 
     y = h - 1
     refresh_ts = time.strftime("%H:%M:%S", time.localtime(last_refresh))
-    left = f" [{screen_name}]  q:Quit  r:Refresh  /:Search  d:Delete"
+    left = f" [{screen_name}]  q:Quit  r:Refresh"
+    if extra_keys:
+        left += f"  {extra_keys}"
     right = f"Last refresh: {refresh_ts} "
     gap = max(0, w - len(left) - len(right))
     line = left + " " * gap + right
@@ -177,24 +177,35 @@ def app(stdscr: curses.window) -> None:
     ]
     active_idx = 0
 
+    from data.common import REFRESH_INTERVAL_SEC
+
     while True:
+        # ── Input handling (before render to enable conditional redraw) ──
+        key = stdscr.getch()
+        active_screen = screens[active_idx]
+
+        # Skip redraw when idle (no input, no auto-refresh due)
+        if key == -1:
+            now = time.time()
+            if (not active_screen.needs_refresh
+                    and (now - active_screen.last_refresh) < REFRESH_INTERVAL_SEC):
+                continue
+
         stdscr.erase()
 
         # Terminal size guard
         if not check_terminal_size(stdscr):
             stdscr.refresh()
-            key = stdscr.getch()
             if key == ord("q"):
                 break
             if key == curses.KEY_RESIZE:
                 stdscr.clear()
             continue
 
-        active_screen = screens[active_idx]
-
         draw_top_bar(stdscr, active_idx)
         draw_status_bar(stdscr, SCREEN_NAMES[active_idx],
-                        active_screen.last_refresh or time.time())
+                        active_screen.last_refresh or time.time(),
+                        active_screen.status_keys())
 
         # Render content (rows 1 .. h-2).
         try:
@@ -215,8 +226,6 @@ def app(stdscr: curses.window) -> None:
 
         stdscr.refresh()
 
-        # ── Input handling ───────────────────────────────────────────
-        key = stdscr.getch()
         if key == -1:
             continue
 
@@ -244,11 +253,6 @@ def app(stdscr: curses.window) -> None:
         if not in_input and key == ord("\t"):
             active_idx = (active_idx + 1) % len(screens)
             screens[active_idx].needs_refresh = True
-            continue
-
-        # 'r': force-refresh active screen.
-        if key == ord("r"):
-            active_screen.needs_refresh = True
             continue
 
         # Delegate everything else to the active screen.

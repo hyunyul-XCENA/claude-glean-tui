@@ -6,12 +6,17 @@ project path decoding, and all configuration constants.
 """
 from __future__ import annotations
 
+import functools
 import json
+import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 CLAUDE_DIR: Path = Path.home() / ".claude"
@@ -36,6 +41,12 @@ TOKEN_PRICE_CACHE_CREATION: float = 18.75
 # ── Refresh ────────────────────────────────────────────────────────────────────
 REFRESH_INTERVAL_SEC: int = 10
 
+# ── Regex ─────────────────────────────────────────────────────────────────────
+UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
 
 # ── File I/O helpers ──────────────────────────────────────────────────────────
 
@@ -45,6 +56,7 @@ def read_json(path: Path) -> Optional[Any]:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except (FileNotFoundError, PermissionError, json.JSONDecodeError, OSError):
+        logger.warning("Failed to parse JSON: %s", path)
         return None
 
 
@@ -130,6 +142,7 @@ def format_tokens(n: int) -> str:
 
 # ── Project path decoding ─────────────────────────────────────────────────────
 
+@functools.lru_cache(maxsize=128)
 def decode_project_path(folder_name: str) -> str:
     """Convert a project folder name to its actual filesystem path.
 

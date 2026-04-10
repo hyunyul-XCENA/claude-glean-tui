@@ -147,15 +147,15 @@ class TestDeletePluginFullCleanup:
         assert "error" in result
         assert "invalid" in result["error"].lower()
 
-    def test_delete_plugin_missing_plugins_json_returns_error(
+    def test_delete_plugin_missing_entry_succeeds_gracefully(
         self, tmp_claude_dir: Path,
     ):
-        """Deleting a plugin when installed_plugins.json is empty/missing."""
+        """Deleting a plugin not in installed_plugins.json succeeds (idempotent)."""
         from data.delete import delete_plugin
 
         result = delete_plugin("nonexistent@user")
-        # Should get an error about the plugins file
-        assert "error" in result
+        # Plugin not found in plugins.json is not fatal — settings cleanup still runs
+        assert result.get("ok") is True
 
     def test_delete_plugin_preserves_other_plugins(
         self, tmp_claude_dir: Path,

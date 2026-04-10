@@ -24,6 +24,7 @@ from .common import (
     TOKEN_PRICE_OUTPUT,
     decode_project_path,
     parse_timestamp_ms,
+    ttl_cache,
 )
 
 # ── Time window thresholds (milliseconds) ─────────────────────────────────────
@@ -40,6 +41,7 @@ _STATUSLINE_FILE = Path(os.environ.get(
 )) / "claude-glean-tui" / "statusline.json"
 
 
+@ttl_cache(10)
 def get_usage_stats() -> Dict[str, Any]:
     """Get usage stats. Priority: statusline file > JSONL estimated.
 
@@ -147,6 +149,12 @@ def _aggregate_jsonl_usage() -> Dict[str, Any]:
 
             for jsonl_file in proj_dir.glob("*.jsonl"):
                 if "subagent" in jsonl_file.name:
+                    continue
+                # Skip files not modified within weekly window
+                try:
+                    if jsonl_file.stat().st_mtime < (time.time() - _7D_MS / 1000):
+                        continue
+                except OSError:
                     continue
                 session_id = jsonl_file.stem
 

@@ -91,7 +91,24 @@ def tmp_claude_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (claude_dir / "projects" / "-tmp-myproject").mkdir()
 
     monkeypatch.setattr("data.common.CLAUDE_DIR", claude_dir)
-    return claude_dir
+    # Patch the re-exported binding in modules that do `from .common import CLAUDE_DIR`
+    monkeypatch.setattr("data.usage.CLAUDE_DIR", claude_dir)
+    monkeypatch.setattr("data.delete.CLAUDE_DIR", claude_dir)
+    monkeypatch.setattr("data.sessions.CLAUDE_DIR", claude_dir)
+    # Prevent statusline from returning real system data in tests
+    monkeypatch.setattr(
+        "data.usage._STATUSLINE_FILE", tmp_path / "nonexistent" / "statusline.json",
+    )
+
+    # Clear TTL caches before and after each test to prevent stale data
+    from data.usage import get_usage_stats
+    if hasattr(get_usage_stats, "cache_clear"):
+        get_usage_stats.cache_clear()
+
+    yield claude_dir
+
+    if hasattr(get_usage_stats, "cache_clear"):
+        get_usage_stats.cache_clear()
 
 
 @pytest.fixture()

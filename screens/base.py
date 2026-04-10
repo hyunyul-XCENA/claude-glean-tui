@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import curses
 import time
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone, timedelta
 
 # Color pair indices — initialized by tui.py via curses.init_pair().
@@ -20,7 +21,7 @@ COLOR_SELECTED = 7
 COLOR_ORANGE = 8  # yellow + bold as orange approximation
 
 
-class BaseScreen:
+class BaseScreen(ABC):
     """Abstract base for all TUI screens.
 
     Subclasses must override ``render()``, ``handle_key()``,
@@ -37,17 +38,20 @@ class BaseScreen:
 
     # ── Abstract interface ────────────────────────────────────────────
 
+    @abstractmethod
     def render(self) -> None:
         """Draw screen content.  Content area is rows 1 .. h-2."""
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def handle_key(self, key: int) -> bool:
         """Handle a key press.  Return True if the key was consumed."""
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def refresh_data(self) -> None:
         """Re-fetch data from the ``data/`` module."""
-        raise NotImplementedError
+        ...
 
     # ── Refresh helpers ───────────────────────────────────────────────
 
@@ -125,6 +129,26 @@ class BaseScreen:
             return dt_local.strftime("%H:%M")
         except (ValueError, OSError):
             return iso_str[11:16]  # fallback: raw UTC
+
+    @staticmethod
+    def format_reset_datetime(iso_str: str) -> str:
+        """Convert ISO UTC reset time to local date+time (e.g. '4/18 06:00')."""
+        if not iso_str or len(iso_str) < 16:
+            return ""
+        try:
+            cleaned = iso_str.replace("Z", "+00:00")
+            dt_utc = datetime.fromisoformat(cleaned)
+            dt_local = dt_utc.astimezone()
+            now = datetime.now().astimezone()
+            if dt_local.date() == now.date():
+                return dt_local.strftime("%H:%M")
+            return dt_local.strftime("%-m/%d %H:%M")
+        except (ValueError, OSError):
+            return iso_str[11:16]
+
+    def status_keys(self) -> str:
+        """Extra key hints for the status bar. Override in subclasses."""
+        return ""
 
     # ── Table drawing ─────────────────────────────────────────────────
 

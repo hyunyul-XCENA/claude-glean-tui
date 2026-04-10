@@ -35,7 +35,7 @@ class TestWindow5hAggregation:
         """Three sessions across time boundaries: only entries within 5h
         should contribute to window_5h totals.
 
-        total_tokens = input + output + cache_read + cache_creation
+        total_tokens = input + output (rate limit basis)
         """
         # Arrange: 2 entries within 5h, 1 entry at 6h ago (outside window)
         recent_1h = make_usage_entry(
@@ -74,7 +74,7 @@ class TestWindow5hAggregation:
         assert w5["output_tokens"] == 200 + 400
         assert w5["cache_read_tokens"] == 50 + 100
         assert w5["cache_creation_tokens"] == 10 + 20
-        expected_total = (100 + 300) + (200 + 400) + (50 + 100) + (10 + 20)
+        expected_total = (100 + 300) + (200 + 400)  # input + output only (rate limit basis)
         assert w5["total_tokens"] == expected_total
         assert w5["session_count"] == 2
 
@@ -153,9 +153,9 @@ class TestRemainingCapacity:
         result = get_usage_stats()
         w5 = result["window_5h"]
 
-        assert w5["total_tokens"] == 1_000_000
-        assert w5["remaining_tokens"] == 3_000_000
-        assert w5["usage_pct"] == 25.0
+        assert w5["total_tokens"] == 500_000  # 250k input + 250k output
+        assert w5["remaining_tokens"] == 3_500_000
+        assert w5["usage_pct"] == 12.5
 
     def test_usage_remaining_never_negative(
         self, tmp_claude_dir, mock_jsonl_file, monkeypatch,
@@ -267,7 +267,7 @@ class TestWeeklyWindow:
         # Only recent entries (1d + 5d) counted
         assert wk["input_tokens"] == 100 + 200
         assert wk["output_tokens"] == 100 + 200
-        # total = input + output + cache_read(0) + cache_creation(0)
+        # total = input + output (rate limit basis)
         assert wk["total_tokens"] == (100 + 200) + (100 + 200)
 
     def test_usage_weekly_includes_boundary_entries(

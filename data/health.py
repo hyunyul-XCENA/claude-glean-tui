@@ -125,18 +125,3 @@ def _has_skills_in_cache() -> bool:
     except OSError:
         pass
     return False
-
-
-def _has_mcp_in_cache() -> bool:
-    """Check plugin cache for .mcp.json files with mcpServers."""
-    cache = CLAUDE_DIR / "plugins" / "cache"
-    if not cache.is_dir():
-        return False
-    try:
-        for mcp_file in cache.rglob(".mcp.json"):
-            data = read_json(mcp_file)
-            if data and isinstance(data.get("mcpServers"), dict) and data["mcpServers"]:
-                return True
-    except OSError:
-        pass
-    return False

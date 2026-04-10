@@ -282,6 +282,9 @@ class ComponentsScreen(BaseScreen):
             return True
         return False
 
+    def status_keys(self) -> str:
+        return "d:Delete  j/k:Nav  Enter:Expand"
+
     def _handle_confirm(self, key: int) -> bool:
         if key == ord("y"):
             self._execute_delete()
@@ -334,8 +337,7 @@ class ComponentsScreen(BaseScreen):
                 result = delete_agent(item.get("name", ""))
             elif tab_key == "hooks":
                 event = item.get("event", "")
-                # Hooks use event + list index for identification
-                idx = self.selected
+                idx = item.get("_event_index", 0)
                 result = delete_hook(event, idx)
             else:
                 result = {"error": "Unsupported"}
