@@ -68,12 +68,7 @@ def _read_statusline() -> Optional[Dict[str, Any]]:
             return None
         data = json.loads(raw)
 
-        # Check freshness — statusline updates every few seconds,
-        # but if Claude Code isn't running, file goes stale
         ts = data.get("timestamp", 0)
-        if time.time() - ts > 120:  # 2 min max staleness
-            return None
-
         rl = data.get("rate_limits", {})
         five_hour = rl.get("five_hour", {})
         seven_day = rl.get("seven_day", {})
