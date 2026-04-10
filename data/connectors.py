@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from .types import ConnectorsResult
+
 from .common import CLAUDE_DIR, CLAUDE_JSON, UUID_RE, read_json, ttl_cache
 
 # Valid MCP tool name: mcp__<server>__<tool>
@@ -17,7 +19,7 @@ _MCP_GREP_RE = re.compile(rb'"(mcp__[^"]*)"')
 
 
 @ttl_cache(60)
-def get_connectors() -> Dict[str, Any]:
+def get_connectors() -> ConnectorsResult:
     """Scan ``~/.claude.json``, plugin ``.mcp.json``, and session JSONL files.
 
     The JSONL pass discovers cloud MCP servers and plugin servers

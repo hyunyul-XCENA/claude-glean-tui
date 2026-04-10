@@ -15,6 +15,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
+from .types import DeleteResult
+
 from .common import CLAUDE_DIR, UUID_RE, read_json
 from .components import get_agents, get_hooks, get_plugins, get_skills
 from .connectors import get_connectors
@@ -24,7 +26,7 @@ from .sessions import get_session_detail, get_sessions
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def delete_plugin(plugin_key: str) -> Dict[str, Any]:
+def delete_plugin(plugin_key: str) -> DeleteResult:
     """Remove a plugin completely.
 
     1. Remove entry from ``installed_plugins.json``
@@ -136,7 +138,7 @@ def delete_plugin(plugin_key: str) -> Dict[str, Any]:
     return {"ok": True}
 
 
-def delete_skill(name: str) -> Dict[str, Any]:
+def delete_skill(name: str) -> DeleteResult:
     """Delete a user skill directory: ``~/.claude/skills/{name}/``.
 
     Rejects if the skill is inside the plugin cache.
@@ -165,7 +167,7 @@ def delete_skill(name: str) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def delete_agent(name: str) -> Dict[str, Any]:
+def delete_agent(name: str) -> DeleteResult:
     """Delete a user agent: ``~/.claude/agents/{name}.md``.
 
     Rejects if the agent is inside the plugin cache.
@@ -193,7 +195,7 @@ def delete_agent(name: str) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def delete_session(session_id: str) -> Dict[str, Any]:
+def delete_session(session_id: str) -> DeleteResult:
     """Delete an idle session's JSONL files and session metadata.
 
     Refuses to delete active sessions (running claude processes).
@@ -280,7 +282,7 @@ def delete_session(session_id: str) -> Dict[str, Any]:
     return {"ok": True}
 
 
-def delete_hook(event: str, index: int) -> Dict[str, Any]:
+def delete_hook(event: str, index: int) -> DeleteResult:
     """Delete a hook by event name and handler index from ``settings.json``."""
     if not event:
         return {"error": "event required"}

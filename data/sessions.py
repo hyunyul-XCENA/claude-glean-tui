@@ -16,13 +16,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from .types import ActivityResult, SessionDetailResult, SessionsResult, SessionXray
+
 from .common import CLAUDE_DIR, decode_project_path, format_tokens, parse_timestamp_ms, read_json, read_text, ttl_cache
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 @ttl_cache(10)  # ps aux doesn't change faster than 10s
-def get_sessions() -> Dict[str, Any]:
+def get_sessions() -> SessionsResult:
     """Active claude processes for the current user (via ``ps aux``)."""
     sessions: List[Dict[str, Any]] = []
     try:
@@ -103,7 +105,7 @@ def get_sessions() -> Dict[str, Any]:
 
 
 @ttl_cache(30)  # activity doesn't change every second
-def get_activity() -> Dict[str, Any]:
+def get_activity() -> ActivityResult:
     """Today's command count + recent activity summary from ``history.jsonl``."""
     history_path = CLAUDE_DIR / "history.jsonl"
     if not history_path.is_file():
@@ -155,7 +157,7 @@ def get_activity() -> Dict[str, Any]:
 
 
 @ttl_cache(15)  # session detail is expensive (~110ms), cache 15s
-def get_session_detail() -> Dict[str, Any]:
+def get_session_detail() -> SessionDetailResult:
     """Detailed info for all sessions (active + history).
 
     Returns per-session: session_id, project_name, message_count,
@@ -239,7 +241,7 @@ def get_session_detail() -> Dict[str, Any]:
     return {"sessions": sessions}
 
 
-def get_session_xray(session_id: str) -> Dict[str, Any]:
+def get_session_xray(session_id: str) -> SessionXray:
     """Context breakdown for a single session.
 
     Reads actual token usage (``cache_read_input_tokens``) from the JSONL,

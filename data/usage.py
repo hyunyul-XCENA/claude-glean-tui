@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .types import UsageStats, UsageStatsEstimated, UsageStatsLive
+
 from .common import (
     CLAUDE_DIR,
     CLAUDE_TIER,
@@ -42,7 +44,7 @@ _STATUSLINE_FILE = Path(os.environ.get(
 
 
 @ttl_cache(10)
-def get_usage_stats() -> Dict[str, Any]:
+def get_usage_stats() -> UsageStats:
     """Get usage stats. Priority: statusline file > JSONL estimated.
 
     The statusline file is written by Claude Code's statusLine command
@@ -57,7 +59,7 @@ def get_usage_stats() -> Dict[str, Any]:
     return _aggregate_jsonl_usage()
 
 
-def _read_statusline() -> Optional[Dict[str, Any]]:
+def _read_statusline() -> Optional[UsageStatsLive]:
     """Read usage data from Claude Code's statusline dump file.
 
     Returns parsed data in the same format as API, or None if stale/missing.
@@ -110,7 +112,7 @@ def _epoch_to_iso(epoch: int) -> str:
         return ""
 
 
-def _aggregate_jsonl_usage() -> Dict[str, Any]:
+def _aggregate_jsonl_usage() -> UsageStatsEstimated:
     """Fallback: aggregate token usage from JSONL files (estimated)."""
     now_ms = int(time.time() * 1000)
     cutoff_5h = now_ms - _5H_MS

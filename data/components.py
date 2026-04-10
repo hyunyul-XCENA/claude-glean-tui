@@ -11,13 +11,15 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from .types import AgentsResult, HooksResult, PluginsResult, SkillsResult
+
 from .common import CLAUDE_DIR, CLAUDE_JSON, parse_frontmatter, read_json, read_text, ttl_cache
 from .connectors import get_connectors
 
 # ── Plugins ──────────────────────────────────────────────────────────────────
 
 @ttl_cache(60)  # plugins don't change often
-def get_plugins() -> Dict[str, Any]:
+def get_plugins() -> PluginsResult:
     """Return installed plugins with component counts and enabled status."""
     plugins: List[Dict[str, Any]] = []
 
@@ -72,7 +74,7 @@ def get_plugins() -> Dict[str, Any]:
 
 # ── Skills ───────────────────────────────────────────────────────────────────
 
-def get_skills() -> Dict[str, Any]:
+def get_skills() -> SkillsResult:
     """Scan ``~/.claude/skills/`` + plugin cache for skill definitions."""
     skills: List[Dict[str, Any]] = []
     seen: Set[str] = set()
@@ -138,7 +140,7 @@ def _scan_skills_dir(
 
 # ── Agents ───────────────────────────────────────────────────────────────────
 
-def get_agents() -> Dict[str, Any]:
+def get_agents() -> AgentsResult:
     """Scan ``~/.claude/agents/`` + plugin cache for agent definitions."""
     agents: List[Dict[str, Any]] = []
     seen: Set[str] = set()
@@ -202,7 +204,7 @@ def _scan_agents_dir(
 
 # ── Hooks ────────────────────────────────────────────────────────────────────
 
-def get_hooks() -> Dict[str, Any]:
+def get_hooks() -> HooksResult:
     """Scan ``settings.json`` hooks + plugin ``hooks.json`` files."""
     hooks_list: List[Dict[str, Any]] = []
 

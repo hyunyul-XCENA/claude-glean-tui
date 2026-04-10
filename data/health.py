@@ -8,13 +8,13 @@ circular imports -- does NOT call get_agents/get_skills/etc.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict
+from .types import HealthResult
 
 from .common import CLAUDE_DIR, read_json, ttl_cache
 
 
 @ttl_cache(30)
-def get_health() -> Dict[str, object]:
+def get_health() -> HealthResult:
     """Return harness health score and per-item check results.
 
     Returns::

@@ -1,9 +1,14 @@
 """
 data/ package — all ~/.claude/ reads/writes.
 
-Pure functions returning dicts. No curses imports.
+Pure functions returning TypedDicts. No curses imports.
 """
 from .health import get_health
+from .types import (  # noqa: F401 — re-export for consumers
+    ActivityResult, AgentsResult, ConnectorsResult, DeleteResult,
+    HealthResult, HooksResult, PluginsResult, SessionDetailResult,
+    SessionsResult, SessionXray, SkillsResult, UsageStats,
+)
 from .sessions import get_sessions, get_activity, get_session_detail, get_session_xray
 from .usage import get_usage_stats
 from .components import get_plugins, get_skills, get_agents, get_hooks
