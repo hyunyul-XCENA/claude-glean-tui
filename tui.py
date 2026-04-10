@@ -24,7 +24,7 @@ from screens.base import (
 )
 
 # ── Screen registry ─────────────────────────────────────────────────────────
-SCREEN_NAMES = ["Home", "Usage", "Components", "X-ray", "Vault"]
+SCREEN_NAMES = ["Home", "Usage", "Components", "X-ray"]
 
 # (module_path, class_name) — imported lazily so missing modules don't crash.
 _SCREEN_SPEC = [
@@ -32,7 +32,6 @@ _SCREEN_SPEC = [
     ("screens.usage", "UsageScreen"),
     ("screens.components", "ComponentsScreen"),
     ("screens.xray", "XrayScreen"),
-    ("screens.vault", "VaultScreen"),
 ]
 
 _screen_classes: List[Optional[type]] = []
