@@ -131,9 +131,7 @@ def draw_status_bar(stdscr: curses.window, screen_name: str,
 
     y = h - 1
     refresh_ts = time.strftime("%H:%M:%S", time.localtime(last_refresh))
-    from data.oauth import is_authenticated
-    auth_tag = " [API]" if is_authenticated() else " a:SignIn"
-    left = f" [{screen_name}]  q:Quit  r:Refresh  /:Search  d:Delete{auth_tag}"
+    left = f" [{screen_name}]  q:Quit  r:Refresh  /:Search  d:Delete"
     right = f"Last refresh: {refresh_ts} "
     gap = max(0, w - len(left) - len(right))
     line = left + " " * gap + right
@@ -254,121 +252,8 @@ def app(stdscr: curses.window) -> None:
             active_screen.needs_refresh = True
             continue
 
-        # 'a': OAuth sign-in flow.
-        if not in_input and key == ord("a"):
-            _handle_oauth(stdscr, screens)
-            continue
-
         # Delegate everything else to the active screen.
         active_screen.handle_key(key)
-
-
-# ── OAuth authentication flow ────────────────────────────────────────────────
-
-def _handle_oauth(stdscr: curses.window, screens: list) -> None:
-    """Handle 'a' key — OAuth sign-in or sign-out."""
-    from data.oauth import is_authenticated, start_oauth_flow, complete_oauth_flow, delete_credentials
-
-    h, w = stdscr.getmaxyx()
-    prompt_y = h - 2
-
-    if is_authenticated():
-        # Already signed in — offer sign out
-        try:
-            stdscr.addnstr(prompt_y, 1, "Already signed in. Sign out? (y/n): ",
-                           w - 2, curses.color_pair(COLOR_YELLOW))
-        except curses.error:
-            pass
-        stdscr.refresh()
-        stdscr.timeout(-1)  # blocking
-        key = stdscr.getch()
-        stdscr.timeout(100)
-        if key == ord("y"):
-            delete_credentials()
-            for s in screens:
-                s.needs_refresh = True
-        return
-
-    # Start OAuth flow — open browser
-    try:
-        stdscr.addnstr(prompt_y, 1, "Opening browser for sign-in...",
-                       w - 2, curses.color_pair(COLOR_CYAN))
-    except curses.error:
-        pass
-    stdscr.refresh()
-
-    start_oauth_flow()
-
-    # Collect code from user
-    try:
-        stdscr.addnstr(prompt_y, 1, " " * (w - 2), w - 2)  # clear line
-        stdscr.addnstr(prompt_y, 1, "Paste code here (or Esc to cancel): ",
-                       w - 2, curses.color_pair(COLOR_CYAN))
-    except curses.error:
-        pass
-    stdscr.refresh()
-
-    curses.echo()
-    curses.curs_set(1)
-    stdscr.timeout(-1)  # blocking for input
-
-    code_buf = ""
-    input_x = 36
-    while True:
-        key = stdscr.getch()
-        if key == 27:  # Escape
-            break
-        if key in (10, 13):  # Enter
-            if code_buf.strip():
-                result = complete_oauth_flow(code_buf.strip())
-                if result.get("ok"):
-                    try:
-                        stdscr.addnstr(prompt_y - 1, 1, " " * (w - 2), w - 2)
-                        stdscr.addnstr(prompt_y - 1, 1,
-                                       "Signed in! Token saved to ~/.config/claude-glean-tui/token",
-                                       w - 2, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                        stdscr.addnstr(prompt_y, 1, " " * (w - 2), w - 2)
-                        stdscr.addnstr(prompt_y, 1, "Press any key to continue...",
-                                       w - 2, curses.A_DIM)
-                    except curses.error:
-                        pass
-                    stdscr.refresh()
-                    stdscr.timeout(-1)
-                    stdscr.getch()
-                    for s in screens:
-                        s.needs_refresh = True
-                else:
-                    msg = result.get("error", "Failed")
-                    try:
-                        stdscr.addnstr(prompt_y, 1, " " * (w - 2), w - 2)
-                        stdscr.addnstr(prompt_y, 1, msg, w - 2,
-                                       curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                    except curses.error:
-                        pass
-                    stdscr.refresh()
-                    stdscr.timeout(-1)
-                    stdscr.getch()
-            break
-        if key in (curses.KEY_BACKSPACE, 127, 8):
-            if code_buf:
-                code_buf = code_buf[:-1]
-                input_x -= 1
-                try:
-                    stdscr.addch(prompt_y, input_x, " ")
-                    stdscr.move(prompt_y, input_x)
-                except curses.error:
-                    pass
-        elif 32 <= key < 127:
-            code_buf += chr(key)
-            try:
-                stdscr.addch(prompt_y, input_x, key)
-            except curses.error:
-                pass
-            input_x += 1
-
-    curses.noecho()
-    curses.curs_set(0)
-    stdscr.timeout(100)
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────

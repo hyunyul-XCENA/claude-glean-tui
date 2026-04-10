@@ -31,22 +31,8 @@ _5H_MS = 5 * 3600 * 1000
 _7D_MS = 7 * 24 * 3600 * 1000
 
 
-_last_api_result: Optional[Dict[str, Any]] = None
-_api_fail_count: int = 0
-_last_api_call: float = 0.0
-_API_POLL_SEC: float = 60.0  # API call interval — don't hammer the server
 
 
-_debug_log = Path.home() / ".claude-glean-tui" / "debug.log"
-
-
-def _log(msg: str) -> None:
-    try:
-        _debug_log.parent.mkdir(parents=True, exist_ok=True)
-        with open(_debug_log, "a") as f:
-            f.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
-    except OSError:
-        pass
 
 
 _STATUSLINE_FILE = Path(os.environ.get(
@@ -55,38 +41,17 @@ _STATUSLINE_FILE = Path(os.environ.get(
 
 
 def get_usage_stats() -> Dict[str, Any]:
-    """Get usage stats. Priority: statusline file > OAuth API > JSONL estimated.
+    """Get usage stats. Priority: statusline file > JSONL estimated.
 
     The statusline file is written by Claude Code's statusLine command
-    every few seconds — no API calls needed. This is the most reliable source.
+    every few seconds — no API calls needed.
     """
     # 1. Statusline file (written by Claude Code, always fresh)
     sl = _read_statusline()
     if sl is not None:
         return sl
 
-    # 2. OAuth API (if authenticated)
-    global _last_api_result, _api_fail_count, _last_api_call, _API_POLL_SEC
-    try:
-        from .oauth import is_authenticated
-        authenticated = is_authenticated()
-    except ImportError:
-        authenticated = False
-
-    if authenticated:
-        now = time.time()
-        if now - _last_api_call >= _API_POLL_SEC:
-            _last_api_call = now
-            api_data = _fetch_api_usage()
-            if api_data is not None and not api_data.get("_rate_limited"):
-                _last_api_result = api_data
-                _api_fail_count = 0
-                return api_data
-            _api_fail_count += 1
-        if _last_api_result is not None:
-            return _last_api_result
-
-    # 3. JSONL estimated (last resort)
+    # 2. JSONL estimated (fallback when Claude Code not running)
     return _aggregate_jsonl_usage()
 
 
@@ -146,58 +111,6 @@ def _epoch_to_iso(epoch: int) -> str:
         return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
     except (OSError, ValueError):
         return ""
-
-
-def _fetch_api_usage() -> Optional[Dict[str, Any]]:
-    """Fetch real usage data from Anthropic OAuth API."""
-    try:
-        from .oauth import fetch_usage, is_authenticated
-    except ImportError:
-        return None
-
-    if not is_authenticated():
-        return None
-
-    raw = fetch_usage()
-    if raw is None:
-        return None
-    # Pass through rate-limit marker as-is
-    if raw.get("_rate_limited"):
-        return raw
-
-    def _parse_bucket(data: Any) -> Dict[str, Any]:
-        if not isinstance(data, dict):
-            return {"usage_pct": 0.0, "resets_at": ""}
-        return {
-            "usage_pct": data.get("utilization", 0.0),
-            "resets_at": data.get("resets_at", ""),
-        }
-
-    five_hour = _parse_bucket(raw.get("five_hour"))
-    seven_day = _parse_bucket(raw.get("seven_day"))
-
-    extra = raw.get("extra_usage", {}) or {}
-
-    return {
-        "source": "api",
-        "window_5h": {
-            "usage_pct": five_hour["usage_pct"],
-            "resets_at": five_hour["resets_at"],
-        },
-        "window_weekly": {
-            "usage_pct": seven_day["usage_pct"],
-            "resets_at": seven_day["resets_at"],
-        },
-        "seven_day_opus": _parse_bucket(raw.get("seven_day_opus")),
-        "seven_day_sonnet": _parse_bucket(raw.get("seven_day_sonnet")),
-        "extra_usage": {
-            "is_enabled": extra.get("is_enabled", False),
-            "used_credits_usd": (extra.get("used_credits", 0) or 0) / 100.0,
-            "monthly_limit_usd": (extra.get("monthly_limit", 0) or 0) / 100.0,
-            "utilization": extra.get("utilization", 0.0),
-        },
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
 
 
 def _aggregate_jsonl_usage() -> Dict[str, Any]:
