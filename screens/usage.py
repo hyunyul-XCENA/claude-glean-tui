@@ -10,7 +10,7 @@ import curses
 import time
 from typing import Any, Dict, List
 
-from data import get_usage_stats, is_authenticated
+from data import get_usage_stats
 from data.common import CLAUDE_TIER, REFRESH_INTERVAL_SEC, format_tokens
 
 from .base import BaseScreen, COLOR_GREEN, COLOR_CYAN, COLOR_YELLOW

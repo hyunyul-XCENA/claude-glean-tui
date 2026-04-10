@@ -1,7 +1,7 @@
 """Shared fixtures for claude-glean-tui tests.
 
-Provides temporary directory structures, JSONL helpers,
-and vault fixtures used across test modules.
+Provides temporary directory structures and JSONL helpers
+used across test modules.
 """
 from __future__ import annotations
 
@@ -92,64 +92,6 @@ def tmp_claude_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     monkeypatch.setattr("data.common.CLAUDE_DIR", claude_dir)
     return claude_dir
-
-
-@pytest.fixture()
-def tmp_vault_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Create a temporary vault directory with sample notes.
-
-    Structure::
-
-        tmp_path/vault/
-            lessons/
-                lesson-one.md   (frontmatter with date, tags, summary)
-                lesson-two.md
-            decisions/
-                decision-one.md
-            sessions/
-                session-one.md
-    """
-    vault = tmp_path / "vault"
-    vault.mkdir()
-
-    # lessons
-    lessons = vault / "lessons"
-    lessons.mkdir()
-    (lessons / "lesson-one.md").write_text(
-        "---\ndate: 2026-04-08\ntags: [python, testing]\n"
-        "summary: Always test edge cases\n---\n\n"
-        "Edge cases matter.\n",
-        encoding="utf-8",
-    )
-    (lessons / "lesson-two.md").write_text(
-        "---\ndate: 2026-04-09\ntags: [rust]\n"
-        "summary: Borrow checker is your friend\n---\n\n"
-        "Lifetimes are explicit.\n",
-        encoding="utf-8",
-    )
-
-    # decisions
-    decisions = vault / "decisions"
-    decisions.mkdir()
-    (decisions / "decision-one.md").write_text(
-        "---\ndate: 2026-04-07\ntags: [architecture]\n"
-        "summary: Use curses not blessed\n---\n\n"
-        "stdlib wins.\n",
-        encoding="utf-8",
-    )
-
-    # sessions
-    sessions = vault / "sessions"
-    sessions.mkdir()
-    (sessions / "session-one.md").write_text(
-        "---\ndate: 2026-04-09\ntags: [debug]\n"
-        "summary: Debugged the usage parser\n---\n\n"
-        "Found timestamp parsing bug.\n",
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr("vault.VAULT_PATH", vault)
-    return vault
 
 
 @pytest.fixture()

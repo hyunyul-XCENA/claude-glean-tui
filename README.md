@@ -3,7 +3,7 @@
 A terminal dashboard for monitoring Claude Code — usage, context, components, and vault — without leaving the terminal.
 
 ```
-┌─ Claude Glean TUI ─────[1:Home] [2:Usage] [3:Components] [4:X-ray] [5:Vault]─┐
+┌─ Claude Glean TUI ──────────[1:Home] [2:Usage] [3:Components] [4:X-ray]──────┐
 │                                                                                │
 │  ── Active Sessions ───────────────────────────────────────────────────         │
 │  Session                       Context          Action                         │
@@ -90,20 +90,11 @@ Per-session context window deep dive:
 - Compact count and messages since last compact
 - Delete idle sessions with `d`
 
-### 5. Vault
-
-Browse your knowledge vault (`~/Documents/vault/` or `$CLAUDE_VAULT_PATH`):
-
-- Navigate directories → notes → full content
-- Search across all notes with `/`
-- Markdown syntax highlighting
-- `b` or Backspace to go back
-
 ## Keybindings
 
 | Key | Action |
 |-----|--------|
-| `1`-`5` | Switch screens |
+| `1`-`4` | Switch screens |
 | `Tab` | Cycle screens |
 | `j`/`k` or `↑`/`↓` | Navigate lists |
 | `Enter` | Select / expand |
@@ -117,7 +108,6 @@ Browse your knowledge vault (`~/Documents/vault/` or `$CLAUDE_VAULT_PATH`):
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `CLAUDE_VAULT_PATH` | `~/Documents/vault` | Vault directory path |
 | `CLAUDE_TIER` | `max5x` | Subscription tier for estimated mode (`pro`, `max5x`, `max20x`) |
 
 ## Project Structure
@@ -126,7 +116,6 @@ Browse your knowledge vault (`~/Documents/vault/` or `$CLAUDE_VAULT_PATH`):
 claude-glean-tui/
 ├── tui.py              # Entry point + event loop
 ├── setup.sh            # Statusline integration setup
-├── vault.py            # Vault data functions
 ├── data/
 │   ├── common.py       # Utilities, constants, TTL cache
 │   ├── health.py       # Harness Score (7 items)
@@ -140,8 +129,7 @@ claude-glean-tui/
     ├── home.py         # Screen 1
     ├── usage.py        # Screen 2
     ├── components.py   # Screen 3
-    ├── xray.py         # Screen 4
-    └── vault.py        # Screen 5
+    └── xray.py         # Screen 4
 ```
 
 ## Requirements
