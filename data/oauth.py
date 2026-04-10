@@ -237,6 +237,8 @@ def complete_oauth_flow(raw_code: str) -> Dict[str, Any]:
     _save_credentials(creds)
     _pending_verifier = None
     _pending_state = None
+    global _token_invalid
+    _token_invalid = False
     return {"ok": True, "access_token": access_token}
 
 
@@ -280,6 +282,9 @@ def _refresh_token() -> bool:
     return True
 
 
+_token_invalid: bool = False  # set True on 401, cleared on successful auth
+
+
 def _needs_refresh() -> bool:
     # Env var tokens don't expire (user manages them)
     if os.environ.get("CLAUDE_OAUTH_TOKEN", "").strip():
@@ -291,6 +296,11 @@ def _needs_refresh() -> bool:
     if expires_at == 0:
         return False  # no expiry info
     return time.time() > (expires_at - 60)
+
+
+def is_token_invalid() -> bool:
+    """True if the last API call got 401 (token expired, needs re-auth)."""
+    return _token_invalid
 
 
 # ── API calls ────────────────────────────────────────────────────────────────
@@ -330,11 +340,15 @@ def _authorized_request(url: str) -> Optional[Dict[str, Any]]:
             pass
         _debug(f"HTTP {e.code}: {body}")
         if e.code == 429:
-            # Rate limited — return a marker so caller can back off
             retry_after = e.headers.get("Retry-After", "60") if hasattr(e, 'headers') else "60"
             return {"_rate_limited": True, "retry_after": int(retry_after) if retry_after.isdigit() else 60}
         if e.code == 401:
+            global _token_invalid
+            _token_invalid = True
+            _debug("token expired (401) — needs re-auth")
+            # Try refresh if we have a refresh token
             if _refresh_token():
+                _token_invalid = False
                 creds = _load_credentials()
                 if creds:
                     req.remove_header("Authorization")

@@ -6,7 +6,7 @@ Pure functions returning dicts. No curses imports.
 from .health import get_health
 from .sessions import get_sessions, get_activity, get_session_detail, get_session_xray
 from .usage import get_usage_stats
-from .oauth import is_authenticated, start_oauth_flow, complete_oauth_flow, delete_credentials
+from .oauth import is_authenticated, is_token_invalid, start_oauth_flow, complete_oauth_flow, delete_credentials
 from .components import get_plugins, get_skills, get_agents, get_hooks
 from .connectors import get_connectors
 from .delete import delete_plugin, delete_skill, delete_agent, delete_hook, delete_session

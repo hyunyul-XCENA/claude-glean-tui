@@ -176,6 +176,17 @@ class HomeScreen(BaseScreen):
     # ── API quota ─────────────────────────────────────────────────────
 
     def _render_usage(self, y: int, width: int) -> int:
+        # Check for expired token
+        try:
+            from data.oauth import is_token_invalid
+            if is_token_invalid():
+                y = self.draw_section(y, "API Usage", width - 2)
+                self.safe_addstr(y, 3, "Token expired. Press 'a' to re-authenticate.",
+                                 curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                return y + 1
+        except ImportError:
+            pass
+
         source = self.usage.get("source", "estimated")
         if source == "api":
             return self._render_usage_api(y, width)
