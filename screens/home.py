@@ -17,6 +17,13 @@ from data import (
     get_usage_stats,
 )
 from data.common import CLAUDE_TIER, REFRESH_INTERVAL_SEC, format_tokens
+from data.types import (
+    ActivityResult,
+    HealthResult,
+    ProcessInfo,
+    SessionDetail,
+    UsageStats,
+)
 
 from .base import (
     COLOR_BLUE,
@@ -32,24 +39,24 @@ class HomeScreen(BaseScreen):
 
     def __init__(self, stdscr: curses.window) -> None:
         super().__init__(stdscr)
-        self.sessions: List[Dict[str, Any]] = []
-        self.session_details: List[Dict[str, Any]] = []
-        self.usage: Dict[str, Any] = {}
-        self.health: Dict[str, Any] = {}
-        self.activity: Dict[str, Any] = {}
+        self.sessions: List[ProcessInfo] = []
+        self.session_details: List[SessionDetail] = []
+        self.usage: UsageStats = {}  # type: ignore[assignment]
+        self.health: HealthResult = {}  # type: ignore[assignment]
+        self.activity: ActivityResult = {}  # type: ignore[assignment]
 
     # ── Data ──────────────────────────────────────────────────────────
 
     def refresh_data(self) -> None:
         try:
             raw = get_sessions()
-            self.sessions = raw.get("sessions", [])
+            self.sessions = raw["sessions"]
         except Exception:
             self.sessions = []
 
         try:
             raw = get_session_detail()
-            self.session_details = raw.get("sessions", [])
+            self.session_details = raw["sessions"]
         except Exception:
             self.session_details = []
 
@@ -71,8 +78,7 @@ class HomeScreen(BaseScreen):
     # ── Render ────────────────────────────────────────────────────────
 
     def render(self) -> None:
-        if self.check_auto_refresh(REFRESH_INTERVAL_SEC):
-            self.refresh_data()
+        self.check_auto_refresh(REFRESH_INTERVAL_SEC)
 
         start_y, height, width = self.content_area()
         y = start_y
@@ -108,9 +114,9 @@ class HomeScreen(BaseScreen):
             return y + 1
 
         # Build a PID lookup from active processes
-        active_pids: Dict[str, Dict[str, Any]] = {}
+        active_pids: Dict[str, ProcessInfo] = {}
         for s in self.sessions:
-            pid = str(s.get("pid", ""))
+            pid = str(s["pid"])
             if pid:
                 active_pids[pid] = s
 
@@ -121,7 +127,7 @@ class HomeScreen(BaseScreen):
         y += 1
 
         h_max, _ = self.stdscr.getmaxyx()
-        active_details = [d for d in self.session_details if d.get("is_active")]
+        active_details = [d for d in self.session_details if d["is_active"]]
         if not active_details:
             self.safe_addstr(y, 3, "No active sessions.", curses.A_DIM)
             return y + 1
@@ -130,19 +136,17 @@ class HomeScreen(BaseScreen):
             if y >= h_max - 1:
                 break
 
-            project = detail.get("project_name", "unknown")[:18]
-            pct = detail.get("context_pct", 0.0)
-            is_active = True
+            project = detail["project_name"][:18]
+            pct = detail["context_pct"]
 
             # Build label: "project (PID xxxx)"
             # Try to find matching PID from active sessions
             pid_label = ""
-            if is_active:
-                for pid, sess in active_pids.items():
-                    cwd = sess.get("cwd", "")
-                    if project.lower() in cwd.lower():
-                        pid_label = f"  (PID {pid})"
-                        break
+            for pid, sess in active_pids.items():
+                cwd = sess["cwd"]
+                if project.lower() in cwd.lower():
+                    pid_label = f"  (PID {pid})"
+                    break
 
             label = f"{project}{pid_label}"
             self.safe_addstr(y, 3, label[:28])
@@ -176,6 +180,9 @@ class HomeScreen(BaseScreen):
     # ── API quota ─────────────────────────────────────────────────────
 
     def _render_usage(self, y: int, width: int) -> int:
+        if not self.usage:
+            self.safe_addstr(y, 3, "Loading...", curses.A_DIM)
+            return y + 1
         source = self.usage.get("source", "estimated")
         if source in ("api", "statusline"):
             return self._render_usage_api(y, width)
@@ -188,16 +195,16 @@ class HomeScreen(BaseScreen):
 
     def _render_usage_api(self, y: int, width: int) -> int:
         """Render usage from statusline or API (exact data)."""
-        source = self.usage.get("source", "api")
+        source = self.usage["source"]
         label = "Usage (live)" if source == "statusline" else "API Usage (live)"
         y = self.draw_section(y, label, width - 2)
 
-        w5h = self.usage.get("window_5h", {})
-        wk = self.usage.get("window_weekly", {})
+        w5h = self.usage["window_5h"]
+        wk = self.usage["window_weekly"]
 
         # 5-hour bar
-        pct_5h = w5h.get("usage_pct", 0.0)
-        resets_5h = w5h.get("resets_at", "")
+        pct_5h = w5h["usage_pct"]
+        resets_5h = w5h["resets_at"]
         self.safe_addstr(y, 3, "5h Window: ")
         self.draw_bar(y, 14, pct_5h, 20)
         local_time = self.format_reset_time(resets_5h)
@@ -206,8 +213,8 @@ class HomeScreen(BaseScreen):
         y += 1
 
         # Weekly bar
-        pct_wk = wk.get("usage_pct", 0.0)
-        resets_wk = wk.get("resets_at", "")
+        pct_wk = wk["usage_pct"]
+        resets_wk = wk["resets_at"]
         self.safe_addstr(y, 3, "Weekly:    ")
         self.draw_bar(y, 14, pct_wk, 20)
         local_wk = self.format_reset_datetime(resets_wk)
@@ -236,26 +243,26 @@ class HomeScreen(BaseScreen):
         tier_name = CLAUDE_TIER.replace("max", "Max ")
         y = self.draw_section(y, f"API Quota ({tier_name}) [estimated]", width - 2)
 
-        w5h = self.usage.get("window_5h", {})
-        wk = self.usage.get("window_weekly", {})
-        cost = self.usage.get("cost_estimate", {})
+        w5h = self.usage["window_5h"]
+        wk = self.usage["window_weekly"]
+        cost = self.usage["cost_estimate"]  # type: ignore[typeddict-item]
 
-        pct_5h = w5h.get("usage_pct", 0.0)
-        rem_5h = w5h.get("remaining_tokens", 0)
+        pct_5h = w5h["usage_pct"]
+        rem_5h = w5h["remaining_tokens"]  # type: ignore[typeddict-item]
         self.safe_addstr(y, 3, "5h Window: ")
         self.draw_bar(y, 14, pct_5h, 20)
         self.safe_addstr(y, 39, f"used  |  {format_tokens(rem_5h)} remaining")
         y += 1
 
-        pct_wk = wk.get("usage_pct", 0.0)
-        rem_wk = wk.get("remaining_tokens", 0)
+        pct_wk = wk["usage_pct"]
+        rem_wk = wk["remaining_tokens"]  # type: ignore[typeddict-item]
         self.safe_addstr(y, 3, "Weekly:    ")
         self.draw_bar(y, 14, pct_wk, 20)
         self.safe_addstr(y, 39, f"used  |  {format_tokens(rem_wk)} remaining")
         y += 1
 
-        cost_5h = cost.get("window_5h_usd", 0.0)
-        cost_wk = cost.get("window_weekly_usd", 0.0)
+        cost_5h = cost["window_5h_usd"]
+        cost_wk = cost["window_weekly_usd"]
         self.safe_addstr(y, 3,
                          f"Est. cost: 5h ${cost_5h:.2f} | Week ${cost_wk:.2f}",
                          curses.A_DIM)
@@ -265,11 +272,14 @@ class HomeScreen(BaseScreen):
     # ── Harness score ─────────────────────────────────────────────────
 
     def _render_harness(self, y: int, width: int) -> int:
+        if not self.health:
+            self.safe_addstr(y, 3, "Loading...", curses.A_DIM)
+            return y + 1
         y = self.draw_section(y, "Harness Score", width - 2)
 
-        score = self.health.get("score", 0)
-        total = self.health.get("total", 100)
-        items = self.health.get("items", {})
+        score = self.health["score"]
+        total = self.health["total"]
+        items = self.health["items"]
 
         # Score bar
         filled = score * 10 // total
@@ -301,9 +311,9 @@ class HomeScreen(BaseScreen):
 
     def _render_quick_stats(self, y: int, width: int) -> None:
         active_count = sum(
-            1 for s in self.session_details if s.get("is_active")
+            1 for s in self.session_details if s["is_active"]
         )
-        today_count = self.activity.get("today_count", 0)
+        today_count = self.activity["today_count"] if self.activity else 0
         tier_label = CLAUDE_TIER
         refresh_ts = time.strftime("%H:%M:%S", time.localtime(self.last_refresh))
 

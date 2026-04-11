@@ -6,9 +6,18 @@ auto-refresh logic, and content area calculation.
 from __future__ import annotations
 
 import curses
+import logging
 import time
 from abc import ABC, abstractmethod
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+# Shared executor for background data refreshes (2 workers to allow
+# overlapping refreshes when switching screens quickly).
+_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tui-refresh")
 
 # Color pair indices — initialized by tui.py via curses.init_pair().
 COLOR_GREEN = 1
@@ -32,6 +41,7 @@ class BaseScreen(ABC):
         self.stdscr = stdscr
         self.needs_refresh: bool = True
         self.last_refresh: float = 0.0
+        self._refresh_future: Optional[Future] = None
         # True when the screen is capturing text input (e.g. search box).
         # While True, tui.py should NOT interpret number keys as screen switches.
         self.input_mode: bool = False
@@ -56,17 +66,52 @@ class BaseScreen(ABC):
     # ── Refresh helpers ───────────────────────────────────────────────
 
     def check_auto_refresh(self, interval: float = 10.0) -> bool:
-        """Return True and reset timer when auto-refresh is due.
+        """Submit background refresh when due; return False (always).
 
-        Screens call this at the top of ``render()``.  When it returns
-        True the screen should call ``refresh_data()`` before drawing.
+        Screens call ``self.check_auto_refresh(N)`` at the top of
+        ``render()`` — no explicit ``refresh_data()`` call needed.
+
+        * First load is **synchronous** so the screen has data on first paint.
+        * Subsequent refreshes are submitted to a background thread pool.
+        * While a refresh is in flight, further submissions are skipped.
         """
+        # 1. Completed future → mark done
+        if self._refresh_future is not None and self._refresh_future.done():
+            try:
+                self._refresh_future.result()
+            except Exception:
+                pass  # refresh_data handles its own errors
+            self._refresh_future = None
+            self.last_refresh = time.time()
+            return False
+
+        # 2. In-flight → skip
+        if self._refresh_future is not None:
+            return False
+
+        # 3. First load → synchronous (no "Loading..." flicker)
+        if self.last_refresh == 0.0:
+            self.needs_refresh = False
+            self._safe_refresh()
+            self.last_refresh = time.time()
+            return False
+
+        # 4. Due → submit to background thread
         now = time.time()
         if self.needs_refresh or (now - self.last_refresh) >= interval:
             self.needs_refresh = False
-            self.last_refresh = now
-            return True
+            self._refresh_future = _executor.submit(self._safe_refresh)
+            return False
+
         return False
+
+    def _safe_refresh(self) -> None:
+        """Wrap ``refresh_data()`` with exception logging (background-safe)."""
+        try:
+            self.refresh_data()
+        except Exception:
+            logger.debug("Background refresh failed for %s",
+                         type(self).__name__, exc_info=True)
 
     # ── Layout helpers ────────────────────────────────────────────────
 

@@ -79,8 +79,7 @@ class ComponentsScreen(BaseScreen):
     # ── Render ────────────────────────────────────────────────────────
 
     def render(self) -> None:
-        if self.check_auto_refresh(600):  # components: manual refresh only
-            self.refresh_data()
+        self.check_auto_refresh(600)  # components: manual refresh mostly
 
         start_y, height, width = self.content_area()
         y = start_y

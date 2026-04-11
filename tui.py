@@ -27,7 +27,6 @@ from screens.base import (
 # (module_path, class_name) — imported lazily so missing modules don't crash.
 _SCREEN_SPEC = [
     ("screens.home", "HomeScreen"),
-    ("screens.usage", "UsageScreen"),
     ("screens.components", "ComponentsScreen"),
     ("screens.xray", "XrayScreen"),
 ]
@@ -84,7 +83,7 @@ def init_colors() -> None:
 def draw_top_bar(stdscr: curses.window, active_idx: int) -> None:
     """Render the tab bar at row 0.
 
-    Format: `` Claude Glean TUI  [1:Home] [2:Usage] ...``
+    Format: `` Claude Glean TUI  [1:Home] [2:Components] ...``
     Active tab is highlighted with COLOR_SELECTED.
     """
     h, w = stdscr.getmaxyx()
@@ -178,85 +177,94 @@ def app(stdscr: curses.window) -> None:
     active_idx = 0
 
     from data.common import REFRESH_INTERVAL_SEC
+    from screens.base import _executor
 
-    while True:
-        # ── Input handling (before render to enable conditional redraw) ──
-        key = stdscr.getch()
-        active_screen = screens[active_idx]
+    try:
+        while True:
+            # ── Input handling (before render to enable conditional redraw) ──
+            key = stdscr.getch()
+            active_screen = screens[active_idx]
 
-        # Skip redraw when idle (no input, no auto-refresh due)
-        if key == -1:
-            now = time.time()
-            if (not active_screen.needs_refresh
-                    and (now - active_screen.last_refresh) < REFRESH_INTERVAL_SEC):
+            # Skip redraw when idle (no input, no auto-refresh due, no
+            # background refresh just completed).
+            if key == -1:
+                now = time.time()
+                has_pending = (active_screen._refresh_future is not None
+                               and active_screen._refresh_future.done())
+                if (not active_screen.needs_refresh
+                        and not has_pending
+                        and (now - active_screen.last_refresh)
+                        < REFRESH_INTERVAL_SEC):
+                    continue
+
+            stdscr.erase()
+
+            # Terminal size guard
+            if not check_terminal_size(stdscr):
+                stdscr.refresh()
+                if key == ord("q"):
+                    break
+                if key == curses.KEY_RESIZE:
+                    stdscr.clear()
                 continue
 
-        stdscr.erase()
+            draw_top_bar(stdscr, active_idx)
+            draw_status_bar(stdscr, SCREEN_NAMES[active_idx],
+                            active_screen.last_refresh or time.time(),
+                            active_screen.status_keys())
 
-        # Terminal size guard
-        if not check_terminal_size(stdscr):
+            # Render content (rows 1 .. h-2).
+            try:
+                active_screen.render()
+            except Exception as exc:
+                start_y, _, width = active_screen.content_area()
+                try:
+                    msg = f"Error: {exc}"
+                    stdscr.addnstr(start_y + 1, 3,
+                                   msg[:width - 4],
+                                   max(0, width - 4),
+                                   curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                    stdscr.addnstr(start_y + 2, 3,
+                                   "Press r to retry.",
+                                   max(0, width - 4), curses.A_DIM)
+                except curses.error:
+                    pass
+
             stdscr.refresh()
-            if key == ord("q"):
-                break
+
+            if key == -1:
+                continue
+
             if key == curses.KEY_RESIZE:
                 stdscr.clear()
-            continue
+                continue
 
-        draw_top_bar(stdscr, active_idx)
-        draw_status_bar(stdscr, SCREEN_NAMES[active_idx],
-                        active_screen.last_refresh or time.time(),
-                        active_screen.status_keys())
+            # 'q' — let screen consume first; quit only if not consumed.
+            if key == ord("q"):
+                if not active_screen.handle_key(key):
+                    break
+                continue
 
-        # Render content (rows 1 .. h-2).
-        try:
-            active_screen.render()
-        except Exception as exc:
-            start_y, _, width = active_screen.content_area()
-            try:
-                msg = f"Error: {exc}"
-                stdscr.addnstr(start_y + 1, 3,
-                               msg[:width - 4],
-                               max(0, width - 4),
-                               curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                stdscr.addnstr(start_y + 2, 3,
-                               "Press r to retry.",
-                               max(0, width - 4), curses.A_DIM)
-            except curses.error:
-                pass
+            in_input = getattr(active_screen, "input_mode", False)
 
-        stdscr.refresh()
+            # Number keys 1-5: switch screen (skip during input mode).
+            if not in_input and ord("1") <= key <= ord("5"):
+                new_idx = key - ord("1")
+                if new_idx < len(screens):
+                    active_idx = new_idx
+                    screens[active_idx].needs_refresh = True
+                continue
 
-        if key == -1:
-            continue
-
-        if key == curses.KEY_RESIZE:
-            stdscr.clear()
-            continue
-
-        # 'q' — let screen consume first; quit only if not consumed.
-        if key == ord("q"):
-            if not active_screen.handle_key(key):
-                break
-            continue
-
-        in_input = getattr(active_screen, "input_mode", False)
-
-        # Number keys 1-5: switch screen (skip during input mode).
-        if not in_input and ord("1") <= key <= ord("5"):
-            new_idx = key - ord("1")
-            if new_idx < len(screens):
-                active_idx = new_idx
+            # Tab: cycle to next screen.
+            if not in_input and key == ord("\t"):
+                active_idx = (active_idx + 1) % len(screens)
                 screens[active_idx].needs_refresh = True
-            continue
+                continue
 
-        # Tab: cycle to next screen.
-        if not in_input and key == ord("\t"):
-            active_idx = (active_idx + 1) % len(screens)
-            screens[active_idx].needs_refresh = True
-            continue
-
-        # Delegate everything else to the active screen.
-        active_screen.handle_key(key)
+            # Delegate everything else to the active screen.
+            active_screen.handle_key(key)
+    finally:
+        _executor.shutdown(wait=False, cancel_futures=True)
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────

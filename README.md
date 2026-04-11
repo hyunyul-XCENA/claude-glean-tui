@@ -3,7 +3,7 @@
 A terminal dashboard for monitoring Claude Code — usage, context, components, and vault — without leaving the terminal.
 
 ```
-┌─ Claude Glean TUI ──────────[1:Home] [2:Usage] [3:Components] [4:X-ray]──────┐
+┌─ Claude Glean TUI ──────────────[1:Home] [2:Components] [3:X-ray]────────────┐
 │                                                                                │
 │  ── Active Sessions ───────────────────────────────────────────────────         │
 │  Session                       Context          Action                         │
@@ -61,15 +61,7 @@ The at-a-glance decision screen:
 - **Rate limit bars** — 5-hour and weekly usage percentage (same data as `/usage`)
 - **Harness Score** — workspace health check (7 items, 0-100)
 
-### 2. Usage
-
-Detailed usage breakdown:
-
-- 5-hour / weekly usage bars with reset times (in local timezone)
-- Per-session token table (input, output, cache-read, cache-write)
-- Estimated cost
-
-### 3. Components
+### 2. Components
 
 Browse and manage Claude Code components:
 
@@ -81,7 +73,7 @@ Browse and manage Claude Code components:
 
 Sub-tab navigation with Left/Right arrows. `d` to delete user items (with confirmation).
 
-### 4. X-ray
+### 3. X-ray
 
 Per-session context window deep dive:
 
@@ -94,7 +86,7 @@ Per-session context window deep dive:
 
 | Key | Action |
 |-----|--------|
-| `1`-`4` | Switch screens |
+| `1`-`3` | Switch screens |
 | `Tab` | Cycle screens |
 | `j`/`k` or `↑`/`↓` | Navigate lists |
 | `Enter` | Select / expand |
@@ -127,9 +119,8 @@ claude-glean-tui/
 └── screens/
     ├── base.py         # BaseScreen + shared rendering
     ├── home.py         # Screen 1
-    ├── usage.py        # Screen 2
-    ├── components.py   # Screen 3
-    └── xray.py         # Screen 4
+    ├── components.py   # Screen 2
+    └── xray.py         # Screen 3
 ```
 
 ## Requirements

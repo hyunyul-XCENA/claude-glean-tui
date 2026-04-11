@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -111,19 +112,29 @@ def ttl_cache(seconds: float):
     """Simple TTL cache decorator. Caches the return value for *seconds*.
 
     Only works with no-arg functions (all our get_*() functions).
-    Thread-unsafe but fine for single-threaded curses TUI.
+    Thread-safe: uses a per-function lock to protect cache reads/writes.
     """
     def decorator(fn):
         _cache: Dict[str, Any] = {"value": None, "expires": 0.0}
+        _lock = threading.Lock()
+
         def wrapper():
             now = time.time()
-            if _cache["value"] is not None and now < _cache["expires"]:
-                return _cache["value"]
+            with _lock:
+                if _cache["value"] is not None and now < _cache["expires"]:
+                    return _cache["value"]
+            # Release lock during I/O so other threads aren't blocked.
             result = fn()
-            _cache["value"] = result
-            _cache["expires"] = now + seconds
+            with _lock:
+                _cache["value"] = result
+                _cache["expires"] = time.time() + seconds
             return result
-        wrapper.cache_clear = lambda: _cache.update(value=None, expires=0.0)
+
+        def cache_clear():
+            with _lock:
+                _cache.update(value=None, expires=0.0)
+
+        wrapper.cache_clear = cache_clear
         wrapper.__name__ = fn.__name__
         return wrapper
     return decorator

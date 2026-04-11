@@ -11,6 +11,8 @@ from typing import Any, Dict, List
 
 from data import get_session_detail, get_session_xray
 from data.common import REFRESH_INTERVAL_SEC, format_tokens
+from data.types import SessionDetail, SessionXray
+
 from .base import COLOR_GREEN, COLOR_RED, COLOR_YELLOW, BaseScreen
 
 
@@ -20,10 +22,10 @@ class XrayScreen(BaseScreen):
     def __init__(self, stdscr: curses.window) -> None:
         super().__init__(stdscr)
         self.mode: str = "list"  # "list" or "detail"
-        self.sessions: List[Dict[str, Any]] = []
+        self.sessions: List[SessionDetail] = []
         self.selected: int = 0
         self.scroll_offset: int = 0
-        self.xray_data: Dict[str, Any] = {}
+        self.xray_data: SessionXray = {}  # type: ignore[assignment]
         self._active_session_id: str = ""
         self._is_active_session: bool = False
         self._confirm_delete: bool = False
@@ -41,11 +43,10 @@ class XrayScreen(BaseScreen):
     def _refresh_list(self) -> None:
         try:
             raw = get_session_detail()
-            sessions = raw.get("sessions", [])
+            sessions = raw["sessions"]
             # Sort: active first, then by context_pct descending
             sessions.sort(
-                key=lambda s: (not s.get("is_active", False),
-                               -s.get("context_pct", 0)),
+                key=lambda s: (not s["is_active"], -s["context_pct"]),
             )
             self.sessions = sessions
         except Exception:
@@ -63,14 +64,12 @@ class XrayScreen(BaseScreen):
 
     def render(self) -> None:
         if self.mode == "list":
-            if self.check_auto_refresh(REFRESH_INTERVAL_SEC):
-                self.refresh_data()
+            self.check_auto_refresh(REFRESH_INTERVAL_SEC)
             self._render_list()
         else:
             # Auto-refresh only for active sessions
             interval = REFRESH_INTERVAL_SEC if self._is_active_session else 3600
-            if self.check_auto_refresh(interval):
-                self.refresh_data()
+            self.check_auto_refresh(interval)
             self._render_detail()
 
     # ── List mode ─────────────────────────────────────────────────────
@@ -101,22 +100,22 @@ class XrayScreen(BaseScreen):
             attr = curses.A_REVERSE if is_selected else 0
 
             # Status badge
-            if sess.get("is_active", False):
+            if sess["is_active"]:
                 self.safe_addstr(y, 3, "[ACTIVE]",
                                  curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
             else:
                 self.safe_addstr(y, 3, "[idle]", curses.A_DIM)
 
             # Project name
-            project = sess.get("project_name", "unknown")[:20]
+            project = sess["project_name"][:20]
             self.safe_addstr(y, 14, project, attr)
 
             # Message count
-            msg_count = sess.get("message_count", 0)
+            msg_count = sess["message_count"]
             self.safe_addstr(y, 36, str(msg_count), attr)
 
             # Context percentage with bar
-            pct = sess.get("context_pct", 0.0)
+            pct = sess["context_pct"]
             self.draw_bar(y, 48, pct, 15)
 
             y += 1
@@ -163,9 +162,9 @@ class XrayScreen(BaseScreen):
             rows: List[List[str]] = []
             for entry in breakdown:
                 rows.append([
-                    entry.get("name", "?"),
-                    format_tokens(entry.get("tokens", 0)),
-                    f"{entry.get('pct', 0.0):.1f}%",
+                    entry["name"],
+                    format_tokens(entry["tokens"]),
+                    f"{entry['pct']:.1f}%",
                 ])
             y = self.draw_table(y, 5, headers, rows, col_widths)
             y += 1
@@ -234,8 +233,8 @@ class XrayScreen(BaseScreen):
         if key in (curses.KEY_ENTER, 10, 13):
             if self.sessions and self.selected < len(self.sessions):
                 sess = self.sessions[self.selected]
-                self._active_session_id = sess.get("session_id", "")
-                self._is_active_session = sess.get("is_active", False)
+                self._active_session_id = sess["session_id"]
+                self._is_active_session = sess["is_active"]
                 self.mode = "detail"
                 self.needs_refresh = True
             return True
@@ -253,12 +252,12 @@ class XrayScreen(BaseScreen):
         if not self.sessions or self.selected >= len(self.sessions):
             return True
         sess = self.sessions[self.selected]
-        if sess.get("is_active"):
+        if sess["is_active"]:
             self._message = "Cannot delete active session"
             self._message_time = time.time()
             return True
-        name = sess.get("project_name", "unknown")
-        sid = sess.get("session_id", "")[:8]
+        name = sess["project_name"]
+        sid = sess["session_id"][:8]
         self._message = f"Delete session '{name}' ({sid}...)? (y/n)"
         self._message_time = time.time()
         self._confirm_delete = True
@@ -267,7 +266,7 @@ class XrayScreen(BaseScreen):
     def _do_delete(self) -> None:
         from data.delete import delete_session
         sess = self.sessions[self.selected]
-        sid = sess.get("session_id", "")
+        sid = sess["session_id"]
         result = delete_session(sid)
         if result.get("ok"):
             self._message = "Deleted."
